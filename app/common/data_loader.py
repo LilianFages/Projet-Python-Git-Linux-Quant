@@ -24,18 +24,28 @@ def load_price_data(
 ) -> pd.DataFrame:
     """
     Charge les données de prix d'un symbole, avec un cache local simple.
+    Si le fichier de cache est invalide, on le régénère.
     """
     cache_file = _cache_path(symbol, interval)
 
     start_dt = pd.to_datetime(start)
     end_dt = pd.to_datetime(end)
 
+    df = None
+
     if use_cache and cache_file.exists():
-        df = pd.read_csv(cache_file, parse_dates=["date"], index_col="date")
-    else:
+        try:
+            df = pd.read_csv(cache_file, parse_dates=["date"], index_col="date")
+        except Exception:
+            # Cache cassé → on supprimera et on régénère
+            cache_file.unlink(missing_ok=True)
+            df = None
+
+    if df is None:
         df = fetch_ohlcv(symbol, start_dt, end_dt, interval)
         df.to_csv(cache_file, index_label="date")
 
+    # Filtre sur la période demandée
     mask = (df.index >= start_dt) & (df.index <= end_dt)
     df = df.loc[mask]
 
