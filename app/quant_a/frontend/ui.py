@@ -1,6 +1,12 @@
 import streamlit as st
 
-from app.common.config import ASSET_UNIVERSE, DEFAULT_SINGLE_ASSET, default_start_end
+from app.common.config import (
+    ASSET_CLASSES,
+    DEFAULT_ASSET_CLASS,
+    DEFAULT_SINGLE_ASSET,
+    default_start_end,
+)
+
 from app.common.data_loader import load_price_data
 
 def apply_quant_a_theme():
@@ -122,13 +128,32 @@ def render():
     # --------- SIDEBAR (déjà en place, on garde la logique) ---------
     st.sidebar.subheader("Options (Quant A)")
 
-    symbol = st.sidebar.selectbox(
-        "Choisir un actif",
-        ASSET_UNIVERSE,
-        index=ASSET_UNIVERSE.index(DEFAULT_SINGLE_ASSET),
+    # 1) Choix de la classe d'actifs
+    asset_class_names = list(ASSET_CLASSES.keys())
+    default_class_index = asset_class_names.index(DEFAULT_ASSET_CLASS)
+
+    selected_class = st.sidebar.selectbox(
+        "Classe d'actifs",
+        asset_class_names,
+        index=default_class_index,
     )
 
+    # 2) Choix de l'actif dans la classe
+    symbols_dict = ASSET_CLASSES[selected_class]  # dict {ticker: label}
+    options = list(symbols_dict.items())          # [(ticker, label), ...]
+
+    # On utilise format_func pour afficher seulement le label lisible
+    selected_pair = st.sidebar.selectbox(
+        "Choisir un actif",
+        options,
+        format_func=lambda x: x[1],
+        index=0,  # premier actif de la classe par défaut
+    )
+    symbol = selected_pair[0]  # le ticker réel (ex: "AAPL")
+
+    # 3) Intervalle temporel
     interval = st.sidebar.selectbox("Intervalle", ["1d", "1h"], index=0)
+
 
     st.write("")  # petit espace
 
