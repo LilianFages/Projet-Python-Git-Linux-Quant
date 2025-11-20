@@ -1,0 +1,15 @@
+[theme]
+# Couleur principale (boutons, accents) : bleu "pro finance"
+primaryColor = "#2D8CFF"
+
+# Fond principal : gris très foncé / presque noir
+backgroundColor = "#0B0C10"
+
+# Fond secondaire (sidebar, cartes, blocs) : gris anthracite
+secondaryBackgroundColor = "#14161C"
+
+# Texte principal : presque blanc
+textColor = "#E5E5E5"
+
+# Police sobre
+font = "sans serif"
