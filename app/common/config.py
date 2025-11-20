@@ -1,26 +1,43 @@
 from datetime import datetime, timedelta
 
-# Univers d'actifs organisé par classes
+# --------- ACTIONS : séparées par indice --------- #
+EQUITY_INDICES = {
+    "CAC 40": {
+        "ENGI.PA": "Engie (CAC 40)",
+        "BNP.PA": "BNP Paribas (CAC 40)",
+        "AIR.PA": "Airbus (CAC 40)",
+    },
+    "S&P 500": {
+        "AAPL": "Apple (S&P 500)",
+        "MSFT": "Microsoft (S&P 500)",
+        "GOOGL": "Alphabet (S&P 500)",
+        "AMZN": "Amazon (S&P 500)",
+    },
+    # tu peux rajouter "NASDAQ 100", etc.
+}
+
+# --------- AUTRES CLASSES D'ACTIFS --------- #
+FOREX_PAIRS = {
+    "EURUSD=X": "EUR / USD",
+    "GBPUSD=X": "GBP / USD",
+    "USDJPY=X": "USD / JPY",
+}
+
+COMMODITIES = {
+    "GC=F": "Or (Gold futures)",
+    "SI=F": "Argent (Silver futures)",
+    "CL=F": "Pétrole (Crude Oil)",
+}
+
+# --------- STRUCTURE GLOBALE --------- #
 ASSET_CLASSES = {
-    "Actions": {
-        "AAPL": "Apple (AAPL)",
-        "MSFT": "Microsoft (MSFT)",
-        "GOOGL": "Alphabet (GOOGL)",
-        "ENGI.PA": "Engie (ENGI.PA)",
-    },
-    "Forex": {
-        "EURUSD=X": "EUR / USD",
-        "GBPUSD=X": "GBP / USD",
-        "USDJPY=X": "USD / JPY",
-    },
-    "Matières premières": {
-        "GC=F": "Or (Gold futures)",
-        "SI=F": "Argent (Silver futures)",
-        "CL=F": "Pétrole (Crude Oil)",
-    },
+    "Actions": EQUITY_INDICES,     # attention: dict d'indices
+    "Forex": FOREX_PAIRS,          # dict ticker -> label
+    "Matières premières": COMMODITIES,
 }
 
 DEFAULT_ASSET_CLASS = "Actions"
+DEFAULT_EQUITY_INDEX = "S&P 500"
 DEFAULT_SINGLE_ASSET = "AAPL"
 
 DEFAULT_LOOKBACK_DAYS = 365

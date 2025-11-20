@@ -3,6 +3,7 @@ import streamlit as st
 from app.common.config import (
     ASSET_CLASSES,
     DEFAULT_ASSET_CLASS,
+    DEFAULT_EQUITY_INDEX,
     DEFAULT_SINGLE_ASSET,
     default_start_end,
 )
@@ -126,7 +127,7 @@ def render():
         end = st.date_input("Date de fin", end_default)
 
     # --------- SIDEBAR (déjà en place, on garde la logique) ---------
-    st.sidebar.subheader("Options (Quant A)")
+        st.sidebar.subheader("Options (Quant A)")
 
     # 1) Choix de la classe d'actifs
     asset_class_names = list(ASSET_CLASSES.keys())
@@ -138,20 +139,39 @@ def render():
         index=default_class_index,
     )
 
-    # 2) Choix de l'actif dans la classe
-    symbols_dict = ASSET_CLASSES[selected_class]  # dict {ticker: label}
-    options = list(symbols_dict.items())          # [(ticker, label), ...]
+    # 2) Choix de l'indice / marché SI Actions
+    if selected_class == "Actions":
+        equity_indices = list(ASSET_CLASSES["Actions"].keys())
+        default_index_idx = equity_indices.index(DEFAULT_EQUITY_INDEX)
 
-    # On utilise format_func pour afficher seulement le label lisible
+        selected_index = st.sidebar.selectbox(
+            "Indice actions",
+            equity_indices,
+            index=default_index_idx,
+        )
+
+        symbols_dict = ASSET_CLASSES["Actions"][selected_index]  # dict ticker -> label
+    else:
+        # Pour Forex / Matières premières : dict ticker -> label directement
+        symbols_dict = ASSET_CLASSES[selected_class]
+
+    # 3) Choix de l'actif dans le dictionnaire sélectionné
+    options = list(symbols_dict.items())  # [(ticker, label), ...]
+
+    try:
+        default_symbol_index = [t for t, _ in options].index(DEFAULT_SINGLE_ASSET)
+    except ValueError:
+        default_symbol_index = 0
+
     selected_pair = st.sidebar.selectbox(
         "Choisir un actif",
         options,
-        format_func=lambda x: x[1],
-        index=0,  # premier actif de la classe par défaut
+        format_func=lambda x: x[1],  # affiche le label lisible
+        index=default_symbol_index,
     )
-    symbol = selected_pair[0]  # le ticker réel (ex: "AAPL")
+    symbol = selected_pair[0]  # ex: "AAPL"
 
-    # 3) Intervalle temporel
+    # 4) Intervalle de temps
     interval = st.sidebar.selectbox("Intervalle", ["1d", "1h"], index=0)
 
 
