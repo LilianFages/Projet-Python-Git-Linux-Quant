@@ -269,7 +269,7 @@ def build_compressed_intraday_df(df: pd.DataFrame, equity_index: str, freq: str 
 
     # S'assurer que 'date' est bien en datetime
     df_full["date"] = pd.to_datetime(df_full["date"])
-    
+
     return df_full
 
 
@@ -344,7 +344,7 @@ def render():
 
         # --- GRAPH ---
         st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
-        st.subheader("Prix de clôture")
+        st.subheader("Graphique")
 
         #
         # ---- CAS SPÉCIAL 5 JOURS : temps de marché compressé ----
