@@ -1,5 +1,6 @@
 import streamlit as st
 from datetime import datetime, timedelta
+import altair as alt
 
 from app.common.config import (
     ASSET_CLASSES,
@@ -115,13 +116,13 @@ def get_period_dates_and_interval(period_label: str):
 
     if period_label == "1 jour":
         start = today - timedelta(days=1)
-        interval = "1h"
+        interval = "5m"   # plus granulaire
     elif period_label == "5 jours":
         start = today - timedelta(days=5)
-        interval = "1h"
+        interval = "30m"  # intraday mais moins dense
     elif period_label == "1 mois":
         start = today - timedelta(days=30)
-        interval = "1d"
+        interval = "1h"
     elif period_label == "6 mois":
         start = today - timedelta(days=182)
         interval = "1d"
@@ -135,7 +136,7 @@ def get_period_dates_and_interval(period_label: str):
         start = today - timedelta(days=5 * 365)
         interval = "1wk"
     else:  # "Tout l'historique"
-        start = datetime(1990, 1, 1)  # suffisamment loin
+        start = datetime(1990, 1, 1)  # largement suffisant
         interval = "1mo"
 
     return start, end, interval
@@ -245,7 +246,31 @@ def render():
         # carte graphique
         st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
         st.subheader("Prix de clôture")
-        st.line_chart(df["close"])
+
+        # On prépare les données pour Altair
+        df_plot = df.reset_index()  # 'date' redevient une colonne
+
+        y_min = float(df["close"].min())
+        y_max = float(df["close"].max())
+        padding = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
+
+        chart = (
+            alt.Chart(df_plot)
+            .mark_line()
+            .encode(
+                x=alt.X("date:T", title="Date/heure"),
+                y=alt.Y(
+                    "close:Q",
+                    title="Prix",
+                    scale=alt.Scale(domain=[y_min - padding, y_max + padding]),
+                ),
+                tooltip=["date:T", "close:Q"],
+            )
+            .interactive()
+        )
+
+        st.altair_chart(chart, use_container_width=True)
+
         st.markdown("</div>", unsafe_allow_html=True)
 
 
