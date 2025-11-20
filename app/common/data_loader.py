@@ -24,7 +24,7 @@ def load_price_data(
 ) -> pd.DataFrame:
     """
     Charge les données de prix d'un symbole, avec un cache local simple.
-    Si le fichier de cache est invalide, on le régénère.
+    Gère aussi le cas où l'index est timezone-aware (UTC) pour l'intraday.
     """
     cache_file = _cache_path(symbol, interval)
 
@@ -37,13 +37,17 @@ def load_price_data(
         try:
             df = pd.read_csv(cache_file, parse_dates=["date"], index_col="date")
         except Exception:
-            # Cache cassé → on supprimera et on régénère
+            # Cache cassé -> on repart de zéro
             cache_file.unlink(missing_ok=True)
             df = None
 
     if df is None:
         df = fetch_ohlcv(symbol, start_dt, end_dt, interval)
         df.to_csv(cache_file, index_label="date")
+
+    # --- NOUVEAU : enlever la timezone si présente ---
+    if getattr(df.index, "tz", None) is not None:
+        df.index = df.index.tz_localize(None)
 
     # Filtre sur la période demandée
     mask = (df.index >= start_dt) & (df.index <= end_dt)
