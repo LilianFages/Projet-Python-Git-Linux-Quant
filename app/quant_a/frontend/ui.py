@@ -1,128 +1,63 @@
 import streamlit as st
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time as dtime
 import altair as alt
+import pandas as pd
 
 from app.common.config import (
     ASSET_CLASSES,
     DEFAULT_ASSET_CLASS,
     DEFAULT_EQUITY_INDEX,
     DEFAULT_SINGLE_ASSET,
-    default_start_end,
 )
 
 from app.common.data_loader import load_price_data
 
+
+# ============================================================
+# 🔹 THEME
+# ============================================================
+
 def apply_quant_a_theme():
-    """Injecte du CSS custom pour le look 'pro finance' + dark."""
     st.markdown(
         """
         <style>
-        /* --------- PAGE GLOBALE --------- */
-        .main {
-            padding-left: 3rem;
-            padding-right: 3rem;
-            padding-top: 2rem;
-        }
+        .main { padding-left: 3rem; padding-right: 3rem; padding-top: 2rem; }
+        .quant-title { font-size: 40px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color:#E5E5E5; }
+        .quant-subtitle { font-size: 14px; color: #9FA4B1; margin-bottom: 1rem; }
 
-        /* --------- TITRES --------- */
-        .quant-title {
-            font-size: 40px;
-            font-weight: 800;
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-            text-align: left;
-            color: #E5E5E5;
-        }
-
-        .quant-subtitle {
-            font-size: 14px;
-            color: #9FA4B1;
-            margin-bottom: 1rem;
-        }
-
-        /* --------- SIDEBAR --------- */
-        [data-testid="stSidebar"] {
-            border-right: 1px solid #1F232B;
-        }
-
-        [data-testid="stSidebar"] .css-1d391kg, /* vieux sélecteurs selon versions */
-        [data-testid="stSidebar"] .block-container {
-            padding-top: 1.5rem;
-        }
-
-        /* --------- BOUTONS --------- */
+        [data-testid="stSidebar"] { border-right: 1px solid #1F232B; }
         div.stButton > button:first-child {
-            background-color: #2D8CFF;
-            color: #FFFFFF;
-            border-radius: 6px;
-            border: 1px solid #2D8CFF;
-            padding: 0.4rem 1.4rem;
-            font-weight: 600;
+            background-color:#2D8CFF; color:white; border-radius:6px;
+            border:1px solid #2D8CFF; padding:0.4rem 1.4rem; font-weight:600;
         }
-
-        div.stButton > button:first-child:hover {
-            background-color: #1C5FB8;
-            border-color: #1C5FB8;
-        }
-
-        /* --------- CARTES / BOITES --------- */
+        div.stButton > button:first-child:hover { background-color:#1C5FB8; }
         .quant-card {
-            background-color: #14161C;
-            border-radius: 8px;
-            padding: 1.2rem 1.5rem;
-            border: 1px solid #1F232B;
-            margin-bottom: 1rem;
-        }
-
-        /* --------- TABLE / DATAFRAME --------- */
-        .quant-card table {
-            color: #E5E5E5;
-        }
-
-        .quant-card thead tr th {
-            background-color: #14161C;
-            color: #9FA4B1;
-            border-bottom: 1px solid #1F232B;
-        }
-
-        .quant-card tbody tr:nth-child(odd) {
-            background-color: #14161C;
-        }
-
-        .quant-card tbody tr:nth-child(even) {
-            background-color: #181B22;
-        }
-
-        /* --------- METRICS (plus tard pour les strats) --------- */
-        .metric-good {
-            color: #4CAF50;
-        }
-
-        .metric-bad {
-            color: #F44336;
+            background-color:#14161C; border-radius:8px; padding:1.2rem 1.5rem;
+            border:1px solid #1F232B; margin-bottom:1rem;
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
+
+# ============================================================
+# 🔹 PERIODES (type TradingView)
+# ============================================================
+
 def get_period_dates_and_interval(period_label: str):
-    """
-    Traduit un label de période (1 jour, 1 mois, etc.)
-    en (start, end, interval) pour yfinance.
-    """
-    today = datetime.today()
+    today = datetime.now()
     end = today
 
     if period_label == "1 jour":
         start = today - timedelta(days=1)
-        interval = "5m"   # plus granulaire
+        interval = "5m"
     elif period_label == "5 jours":
         start = today - timedelta(days=5)
-        interval = "30m"  # intraday mais moins dense
+        interval = "15m"
     elif period_label == "1 mois":
         start = today - timedelta(days=30)
-        interval = "1h"
+        interval = "30m"
     elif period_label == "6 mois":
         start = today - timedelta(days=182)
         interval = "1d"
@@ -133,132 +68,239 @@ def get_period_dates_and_interval(period_label: str):
         start = today - timedelta(days=365)
         interval = "1d"
     elif period_label == "5 années":
-        start = today - timedelta(days=5 * 365)
+        start = today - timedelta(days=5*365)
         interval = "1wk"
-    else:  # "Tout l'historique"
-        start = datetime(1990, 1, 1)  # largement suffisant
+    else:
+        start = datetime(1990,1,1)
         interval = "1mo"
 
     return start, end, interval
 
 
+# ============================================================
+# 🔹 HEURES D'OUVERTURE MARCHE (en heure de Paris)
+# ============================================================
+
+MARKET_HOURS = {
+    "S&P 500": (dtime(15,30), dtime(21,45)),
+    "CAC 40": (dtime(9,0), dtime(17,30)),
+}
+
+
+def filter_market_hours_and_weekends(
+    df, asset_class: str, equity_index: str | None, period_label: str
+):
+    """
+    - Pour les actions :
+        - enlève toujours les week-ends
+        - pour **1 jour uniquement** : garde la plage horaire d'ouverture
+    - Pour les autres classes d'actifs : ne change rien.
+    """
+    if df.empty or asset_class != "Actions":
+        return df
+
+    # 1) Enlever les week-ends
+    df = df[df.index.dayofweek < 5]
+
+    # 2) Pour la période 1 jour : filtrer par heures d'ouverture (15h30–21h45 / 9h–17h30)
+    if period_label == "1 jour" and equity_index in MARKET_HOURS:
+        open_t, close_t = MARKET_HOURS[equity_index]
+        start_str = open_t.strftime("%H:%M")
+        end_str = close_t.strftime("%H:%M")
+        df = df.between_time(start_str, end_str)
+
+    # Pour 5 jours / 1 mois / etc. on garde toutes les heures de cotation que renvoie yfinance.
+    # yfinance ne met pas les nuits, donc ça évite naturellement les "barres plates" nocturnes.
+    return df
+
+
+# ============================================================
+# 🔹 Casser la courbe sur les gros trous (nuits, week-ends)
+# ============================================================
+
+def break_gaps(df_plot, interval):
+    from pandas import Timedelta
+
+    def infer_expected_delta(interval: str) -> Timedelta:
+        if interval.endswith("m"):
+            return Timedelta(minutes=int(interval[:-1]))
+        if interval.endswith("h"):
+            return Timedelta(hours=int(interval[:-1]))
+        if interval == "1d":
+            return Timedelta(days=1)
+        if interval == "1wk":
+            return Timedelta(weeks=1)
+        if interval == "1mo":
+            return Timedelta(days=30)
+        return Timedelta(0)
+
+    expected = infer_expected_delta(interval)
+    if expected == Timedelta(0):
+        return df_plot
+
+    diffs = df_plot["date"].diff()
+    df_plot.loc[diffs > expected * 3, "close"] = None
+    return df_plot
+
+
+# ============================================================
+# 🔹 RENDER
+# ============================================================
+
 def render():
+
     apply_quant_a_theme()
 
-    # --------- HEADER ---------
-    st.markdown(
-        "<div class='quant-title'>Quant A — Single Asset Analysis</div>",
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        "<div class='quant-subtitle'>Backtests et analyse d'un actif avec données de marché (yfinance).</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("<div class='quant-title'>Quant A — Single Asset Analysis</div>", unsafe_allow_html=True)
+    st.markdown("<div class='quant-subtitle'>Analyse et backtests sur un actif financier.</div>", unsafe_allow_html=True)
 
-    # --------- CHOIX DE PÉRIODE TYPE TRADINGVIEW ---------
-    st.markdown("### Période")
+    # --- Périodes ---
+    periods = ["1 jour","5 jours","1 mois","6 mois","Année écoulée","1 année","5 années","Tout l'historique"]
+    selected_period = st.radio("Sélectionner la période", periods, horizontal=True, label_visibility="collapsed")
 
-    period_options = [
-        "1 jour",
-        "5 jours",
-        "1 mois",
-        "6 mois",
-        "Année écoulée",
-        "1 année",
-        "5 années",
-        "Tout l'historique",
-    ]
-
-    selected_period = st.radio(
-        "Sélectionner la période",
-        period_options,
-        horizontal=True,
-        label_visibility="collapsed",
-    )
-
-
-    # --------- SIDEBAR (déjà en place, on garde la logique) ---------
+    # --- Sidebar ---
     st.sidebar.subheader("Options (Quant A)")
 
-    # 1) Choix de la classe d'actifs
-    asset_class_names = list(ASSET_CLASSES.keys())
-    default_class_index = asset_class_names.index(DEFAULT_ASSET_CLASS)
+    asset_classes = list(ASSET_CLASSES.keys())
+    selected_class = st.sidebar.selectbox("Classe d'actifs", asset_classes, index=asset_classes.index(DEFAULT_ASSET_CLASS))
 
-    selected_class = st.sidebar.selectbox(
-        "Classe d'actifs",
-        asset_class_names,
-        index=default_class_index,
-    )
-
-    # 2) Choix de l'indice / marché SI Actions
     if selected_class == "Actions":
-        equity_indices = list(ASSET_CLASSES["Actions"].keys())
-        default_index_idx = equity_indices.index(DEFAULT_EQUITY_INDEX)
-
-        selected_index = st.sidebar.selectbox(
-            "Indice actions",
-            equity_indices,
-            index=default_index_idx,
-        )
-
-        symbols_dict = ASSET_CLASSES["Actions"][selected_index]  # dict ticker -> label
+        eq_indices = list(ASSET_CLASSES["Actions"].keys())
+        selected_index = st.sidebar.selectbox("Indice actions", eq_indices, index=eq_indices.index(DEFAULT_EQUITY_INDEX))
+        symbols_dict = ASSET_CLASSES["Actions"][selected_index]
     else:
-        # Pour Forex / Matières premières : dict ticker -> label directement
+        selected_index = None
         symbols_dict = ASSET_CLASSES[selected_class]
 
-    # 3) Choix de l'actif dans le dictionnaire sélectionné
-    options = list(symbols_dict.items())  # [(ticker, label), ...]
+    options = list(symbols_dict.items())
+    selected_pair = st.sidebar.selectbox("Choisir un actif", options, format_func=lambda x: x[1])
+    symbol = selected_pair[0]
 
-    try:
-        default_symbol_index = [t for t, _ in options].index(DEFAULT_SINGLE_ASSET)
-    except ValueError:
-        default_symbol_index = 0
-
-    selected_pair = st.sidebar.selectbox(
-        "Choisir un actif",
-        options,
-        format_func=lambda x: x[1],  # affiche le label lisible
-        index=default_symbol_index,
-    )
-    symbol = selected_pair[0]  # ex: "AAPL"
-
-    st.write("")  # petit espace
-
-    # --------- BOUTON D'ACTION ---------
+    # --- BOUTON ---
     if st.button("Charger les données (Quant A)"):
-        # traduire la sélection en dates + intervalle yfinance
+
         start, end, interval = get_period_dates_and_interval(selected_period)
 
+        # --- Load Yahoo Finance ---
         try:
             df = load_price_data(symbol, start, end, interval)
         except Exception as e:
-            st.error(f"Erreur lors du chargement des données : {e}")
+            st.error(f"Erreur lors du chargement : {e}")
             return
 
-        st.success(f"Données chargées pour {symbol} — période : {selected_period}")
+        # --- Filter ---
+        df = filter_market_hours_and_weekends(df, selected_class, selected_index, selected_period)
 
-        # carte tableau
+        if df.empty:
+            st.error("Aucune donnée disponible (marché fermé ?)")
+            return
+
+        # --- TABLE ---
         st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
         st.subheader("Dernières observations")
         st.dataframe(df.tail())
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # carte graphique
+        # --- GRAPH ---
         st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
         st.subheader("Prix de clôture")
 
-        # On prépare les données pour Altair
-        df_plot = df.reset_index()  # 'date' redevient une colonne
+        # dataframe pour Altair
+        df_plot = df.reset_index().sort_values("date")
 
+        # bornes Y propres
         y_min = float(df["close"].min())
         y_max = float(df["close"].max())
+
+        if not pd.notna(y_min) or not pd.notna(y_max):
+            st.error("Impossible de déterminer les bornes du graphique (valeurs NaN).")
+            return
+
         padding = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
+
+        # --------- Axe X en fonction de la période (temps continu) ---------
+        if selected_period == "1 jour":
+            x_encoding = alt.X(
+                "date:T",
+                title="Heure",
+                axis=alt.Axis(
+                    format="%H:%M",
+                    labelAngle=0,
+                    tickCount=24,   # ≈ toutes les 30 min
+                ),
+            )
+
+        elif selected_period == "5 jours":
+            x_encoding = alt.X(
+                "date:T",
+                title="Date/heure",
+                axis=alt.Axis(
+                    format="%d/%m %Hh",
+                    labelAngle=45,
+                    tickCount=15,   # quelques labels seulement
+                ),
+            )
+
+        elif selected_period == "1 mois":
+            x_encoding = alt.X(
+                "date:T",
+                title="Date",
+                axis=alt.Axis(
+                    format="%d/%m",
+                    labelAngle=45,
+                    tickCount=15,   # ≈ 2 jours entre ticks
+                ),
+            )
+
+        elif selected_period == "6 mois":
+            x_encoding = alt.X(
+                "date:T",
+                title="Date",
+                axis=alt.Axis(
+                    format="%b %d",  # Nov 17
+                    labelAngle=0,
+                    tickCount=12,
+                ),
+            )
+
+        elif selected_period in ("Année écoulée", "1 année"):
+            x_encoding = alt.X(
+                "date:T",
+                title="Mois",
+                axis=alt.Axis(
+                    format="%b",
+                    labelAngle=0,
+                    tickCount=12,
+                ),
+            )
+
+        elif selected_period == "5 années":
+            x_encoding = alt.X(
+                "date:T",
+                title="Année",
+                axis=alt.Axis(
+                    format="%Y",
+                    labelAngle=0,
+                    tickCount=6,
+                ),
+            )
+
+        else:  # "Tout l'historique"
+            x_encoding = alt.X(
+                "date:T",
+                title="Année",
+                axis=alt.Axis(
+                    format="%Y",
+                    labelAngle=0,
+                    tickCount=10,
+                ),
+            )
 
         chart = (
             alt.Chart(df_plot)
             .mark_line()
             .encode(
-                x=alt.X("date:T", title="Date/heure"),
+                x=x_encoding,
                 y=alt.Y(
                     "close:Q",
                     title="Prix",
@@ -270,7 +312,4 @@ def render():
         )
 
         st.altair_chart(chart, use_container_width=True)
-
         st.markdown("</div>", unsafe_allow_html=True)
-
-

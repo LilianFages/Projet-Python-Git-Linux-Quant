@@ -12,22 +12,8 @@ def fetch_ohlcv(
     interval: str = "1d",
 ) -> pd.DataFrame:
     """
-    Récupère les données OHLCV depuis Yahoo Finance via yfinance.
-
-    Parameters
-    ----------
-    symbol : str
-        Ticker (ex: "AAPL").
-    start : str | datetime
-        Date de début.
-    end : str | datetime
-        Date de fin.
-    interval : str
-        Intervalle de temps: '1d', '1h', '30m', etc.
-
-    Returns
-    -------
-    DataFrame avec index datetime et colonnes open, high, low, close, volume.
+    Télécharge les données OHLCV depuis yfinance.
+    Toutes les dates sont converties en timezone Europe/Paris.
     """
 
     start_dt = pd.to_datetime(start)
@@ -56,7 +42,18 @@ def fetch_ohlcv(
         }
     )
 
-    df.index = pd.to_datetime(df.index)
-    df.index.name = "date"
+    # --- CRITIQUE : s'assurer que l'index est en timezone ---
+    # yfinance renvoie parfois UTC, parfois naïf → on force toujours en UTC
+    if df.index.tz is None:
+        df.index = df.index.tz_localize("UTC")
+    else:
+        df.index = df.index.tz_convert("UTC")
 
+    # --- Puis conversion en Europe/Paris ---
+    df.index = df.index.tz_convert("Europe/Paris")
+
+    # --- Et suppression de la timezone pour faciliter graph/filtre ---
+    df.index = df.index.tz_localize(None)
+
+    df.index.name = "date"
     return df
