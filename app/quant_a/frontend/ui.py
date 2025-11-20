@@ -1,4 +1,5 @@
 import streamlit as st
+from datetime import datetime, timedelta
 
 from app.common.config import (
     ASSET_CLASSES,
@@ -104,6 +105,42 @@ def apply_quant_a_theme():
         unsafe_allow_html=True,
     )
 
+def get_period_dates_and_interval(period_label: str):
+    """
+    Traduit un label de période (1 jour, 1 mois, etc.)
+    en (start, end, interval) pour yfinance.
+    """
+    today = datetime.today()
+    end = today
+
+    if period_label == "1 jour":
+        start = today - timedelta(days=1)
+        interval = "1h"
+    elif period_label == "5 jours":
+        start = today - timedelta(days=5)
+        interval = "1h"
+    elif period_label == "1 mois":
+        start = today - timedelta(days=30)
+        interval = "1d"
+    elif period_label == "6 mois":
+        start = today - timedelta(days=182)
+        interval = "1d"
+    elif period_label == "Année écoulée":
+        start = today.replace(month=1, day=1)
+        interval = "1d"
+    elif period_label == "1 année":
+        start = today - timedelta(days=365)
+        interval = "1d"
+    elif period_label == "5 années":
+        start = today - timedelta(days=5 * 365)
+        interval = "1wk"
+    else:  # "Tout l'historique"
+        start = datetime(1990, 1, 1)  # suffisamment loin
+        interval = "1mo"
+
+    return start, end, interval
+
+
 def render():
     apply_quant_a_theme()
 
@@ -117,17 +154,30 @@ def render():
         unsafe_allow_html=True,
     )
 
-    # --------- CONTROLES HAUT (DATES) ---------
-    start_default, end_default = default_start_end()
+    # --------- CHOIX DE PÉRIODE TYPE TRADINGVIEW ---------
+    st.markdown("### Période")
 
-    col_date1, col_date2 = st.columns(2)
-    with col_date1:
-        start = st.date_input("Date de début", start_default)
-    with col_date2:
-        end = st.date_input("Date de fin", end_default)
+    period_options = [
+        "1 jour",
+        "5 jours",
+        "1 mois",
+        "6 mois",
+        "Année écoulée",
+        "1 année",
+        "5 années",
+        "Tout l'historique",
+    ]
+
+    selected_period = st.radio(
+        "Sélectionner la période",
+        period_options,
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+
 
     # --------- SIDEBAR (déjà en place, on garde la logique) ---------
-        st.sidebar.subheader("Options (Quant A)")
+    st.sidebar.subheader("Options (Quant A)")
 
     # 1) Choix de la classe d'actifs
     asset_class_names = list(ASSET_CLASSES.keys())
@@ -171,31 +221,31 @@ def render():
     )
     symbol = selected_pair[0]  # ex: "AAPL"
 
-    # 4) Intervalle de temps
-    interval = st.sidebar.selectbox("Intervalle", ["1d", "1h"], index=0)
-
-
     st.write("")  # petit espace
 
     # --------- BOUTON D'ACTION ---------
     if st.button("Charger les données (Quant A)"):
+        # traduire la sélection en dates + intervalle yfinance
+        start, end, interval = get_period_dates_and_interval(selected_period)
+
         try:
             df = load_price_data(symbol, start, end, interval)
         except Exception as e:
             st.error(f"Erreur lors du chargement des données : {e}")
             return
 
-        st.success(f"Données chargées pour {symbol}")
+        st.success(f"Données chargées pour {symbol} — période : {selected_period}")
 
-        # --------- CARD : TABLEAU DES DONNÉES ---------
+        # carte tableau
         st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
         st.subheader("Dernières observations")
         st.dataframe(df.tail())
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # --------- CARD : GRAPHIQUE ---------
+        # carte graphique
         st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
         st.subheader("Prix de clôture")
         st.line_chart(df["close"])
         st.markdown("</div>", unsafe_allow_html=True)
+
 
