@@ -210,6 +210,10 @@ def filter_market_hours_and_weekends(
         # FX cote quasi 24h en semaine, mais fermé le week-end
         df = df[df.index.dayofweek < 5]
         return df
+    
+    # --- Cas Crypto : ne rien filtrer du tout ---
+    if asset_class == "Crypto":
+        return df
 
     # --- Autres classes : pas de filtrage spécifique ---
     return df
@@ -372,7 +376,8 @@ def render():
         except Exception as e:
             # Fallback spécial pour 1 jour : si on est en période de fermeture
             # (week-end, jour férié...) on élargit un peu la fenêtre.
-            if selected_period == "1 jour":
+            # -> PAS nécessaire pour les cryptos (marché 24/7)
+            if selected_period == "1 jour" and selected_class != "Crypto":
                 alt_start = start - timedelta(days=3)
                 try:
                     df = load_price_data(symbol, alt_start, end, interval)
@@ -412,7 +417,7 @@ def render():
                 df = df[df.index.normalize().isin(last_5_days)]
         
         # --- Spécifique 1 mois : ne garder que ~22 DERNIERS jours d'ouverture ---
-        if selected_period == "1 mois":
+        if selected_period == "1 mois" and selected_class != "Crypto":
             trading_days = sorted(df.index.normalize().unique())
             if len(trading_days) > 22:
                 last_days = trading_days[-22:]  # ≈ 1 mois de bourse
