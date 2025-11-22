@@ -14,7 +14,7 @@ from app.common.data_loader import load_price_data
 
 
 # ============================================================
-# 🔹 THEME
+#  THEME
 # ============================================================
 
 def apply_quant_a_theme():
@@ -42,7 +42,7 @@ def apply_quant_a_theme():
 
 
 # ============================================================
-# 🔹 PERIODES (type TradingView)
+#  PERIODES (type TradingView)
 # ============================================================
 
 def get_period_dates_and_interval(period_label: str):
@@ -56,7 +56,7 @@ def get_period_dates_and_interval(period_label: str):
         start = today - timedelta(days=7)
         interval = "15m"
     elif period_label == "1 mois":
-        start = today - timedelta(days=30)
+        start = today - timedelta(days=45)
         interval = "30m"
     elif period_label == "6 mois":
         start = today - timedelta(days=182)
@@ -86,6 +86,7 @@ from datetime import datetime  # déjà importé au-dessus, à garder
 MARKET_HOURS = {
     "S&P 500": (dtime(15,30), dtime(21,45)),  # NYSE/Nasdaq en heure de Paris
     "CAC 40": (dtime(9,0), dtime(17,30)),
+    "FOREX": (dtime(0,0), dtime(23,55)),
 }
 
 
@@ -160,9 +161,12 @@ def filter_market_hours_and_weekends(
           (en heure de Paris, selon l'indice)
         - pour 5 jours / 1 mois : resample intraday par séance pour
           avoir une grille régulière (15min / 30min) sans nuits/week-ends.
+    - Pour le Forex :
+        - enlève les week-ends (marchés FX fermés du vendredi soir au dimanche soir)
+        - ne touche pas aux nuits (FX cote quasi 24h en semaine).
     - Pour les autres classes d'actifs : ne change rien.
     """
-    if df.empty or asset_class != "Actions" or equity_index not in MARKET_HOURS:
+    if df.empty:
         return df
 
     if not isinstance(df.index, pd.DatetimeIndex):
@@ -170,52 +174,104 @@ def filter_market_hours_and_weekends(
 
     df = df.sort_index().copy()
 
-    # 1) Enlever les week-ends
-    df = df[df.index.dayofweek < 5]
+    # --- Cas Actions : logique existante inchangée ---
+    if asset_class == "Actions" and equity_index in MARKET_HOURS:
 
-    open_t, close_t = MARKET_HOURS[equity_index]
-    start_str = open_t.strftime("%H:%M")
-    end_str = close_t.strftime("%H:%M")
+        # 1) Enlever les week-ends
+        df = df[df.index.dayofweek < 5]
 
-    # 2) Pour les périodes intraday : garder seulement les heures d'ouverture
-    if period_label in ("1 jour", "5 jours", "1 mois"):
-        df = df.between_time(start_str, end_str)
+        open_t, close_t = MARKET_HOURS[equity_index]
+        start_str = open_t.strftime("%H:%M")
+        end_str = close_t.strftime("%H:%M")
 
-    if df.empty:
+        # 2) Pour les périodes intraday : garder seulement les heures d'ouverture
+        if period_label in ("1 jour", "5 jours", "1 mois"):
+            df = df.between_time(start_str, end_str)
+
+        if df.empty:
+            return df
+
+        # 3) Resampling par séance pour 5 jours (15min) et 1 mois (30min)
+        intraday_freq = None
+        if period_label == "5 jours":
+            intraday_freq = "15min"
+        elif period_label == "1 mois":
+            intraday_freq = "30min"
+
+        # On ne resample que si on est sur un intervalle intraday côté yfinance
+        if intraday_freq is not None and interval.endswith("m"):
+            df = _resample_intraday_by_session(df, equity_index, intraday_freq)
+
         return df
 
-    # 3) Resampling par séance pour 5 jours (15min) et 1 mois (30min)
-    intraday_freq = None
-    if period_label == "5 jours":
-        intraday_freq = "15min"
-    elif period_label == "1 mois":
-        intraday_freq = "30min"
+    # --- Cas Forex : enlever seulement les week-ends ---
+    if asset_class == "Forex":
+        # FX cote quasi 24h en semaine, mais fermé le week-end
+        df = df[df.index.dayofweek < 5]
+        return df
 
-    # On ne resample que si on est sur un intervalle intraday côté yfinance
-    if intraday_freq is not None and interval.endswith("m"):
-        df = _resample_intraday_by_session(df, equity_index, intraday_freq)
-
+    # --- Autres classes : pas de filtrage spécifique ---
     return df
 
-def build_compressed_intraday_df(df: pd.DataFrame, equity_index: str, freq: str = "15min") -> pd.DataFrame:
-    """
-    Construit un DataFrame intraday 'temps de marché compressé' :
 
-    - df a un DatetimeIndex naïf en Europe/Paris (cf. fetch_ohlcv)
-    - colonnes : open, high, low, close, adj_close, volume
-    - garde uniquement les jours de semaine et heures d'ouverture (MARKET_HOURS)
-    - resample à freq (15min) à l'intérieur des séances
-    - reconstruit une timeline complète de trading (sans nuits / week-ends)
-    - ajoute une colonne bar_index = 0,1,2,... utilisée comme axe X
+def build_compressed_intraday_df(
+    df: pd.DataFrame,
+    equity_index: str,
+    freq: str = "15min"
+) -> pd.DataFrame:
     """
-    if df.empty or equity_index not in MARKET_HOURS:
+    Construit un DataFrame intraday 'temps de marché compressé'.
+
+    - Pour les indices actions (S&P 500, CAC 40) :
+        - enlève week-ends
+        - garde uniquement heures d'ouverture (MARKET_HOURS)
+        - resample à freq à l'intérieur de chaque séance
+        - reconstruit une timeline de trading sans nuits/week-ends
+        - ajoute bar_index = 0,1,2,... (axe X compressé)
+
+    - Pour le Forex (equity_index == "FOREX") :
+        - enlève week-ends (FX fermé du vendredi soir au dimanche soir)
+        - conserve toutes les heures où ça cote en semaine (jours complets)
+        - resample à freq globalement
+        - ajoute bar_index = 0,1,2,... (axe X compressé, week-ends supprimés)
+    """
+    if df.empty:
         return pd.DataFrame()
 
     if not isinstance(df.index, pd.DatetimeIndex):
         raise ValueError("build_compressed_intraday_df attend un DatetimeIndex.")
 
-    # On part du df déjà en Europe/Paris naïf, comme renvoyé par fetch_ohlcv
     df = df.sort_index().copy()
+
+    # 🔹 Branche spéciale FOREX : on ne dépend pas des heures d'ouverture
+    if equity_index == "FOREX":
+        # 1) Enlever les week-ends (samedi/dimanche)
+        df = df[df.index.dayofweek < 5]
+        if df.empty:
+            return pd.DataFrame()
+
+        # 2) Resample intraday pour lisser la grille (30min, etc.)
+        df_resampled = df.resample(freq).last().ffill()
+        if df_resampled.empty:
+            return pd.DataFrame()
+
+        # 🔹 IMPORTANT : ENLEVER À NOUVEAU LES WEEK-ENDS APRÈS RESAMPLE
+        df_resampled = df_resampled[df_resampled.index.dayofweek < 5]
+        
+        # 3) Compression : bar_index = 0,1,2,... assure un temps continu
+        df_full = df_resampled.reset_index().rename(columns={"index": "date"})
+        df_full["bar_index"] = range(len(df_full))
+
+        # Flatten si MultiIndex (cas yfinance FX)
+        if isinstance(df_full.columns, pd.MultiIndex):
+            df_full.columns = df_full.columns.get_level_values(0)
+
+        df_full["date"] = pd.to_datetime(df_full["date"])
+        return df_full
+
+    # 🔹 Branche par défaut : indices actions (S&P 500, CAC 40, etc.)
+    if equity_index not in MARKET_HOURS:
+        return pd.DataFrame()
 
     open_t, close_t = MARKET_HOURS[equity_index]
 
@@ -232,7 +288,6 @@ def build_compressed_intraday_df(df: pd.DataFrame, equity_index: str, freq: str 
 
     # 3) resample intraday à freq pour lisser les trous intra-séance
     df_resampled = df.resample(freq).last().ffill()
-
     if df_resampled.empty:
         return pd.DataFrame()
 
@@ -272,10 +327,8 @@ def build_compressed_intraday_df(df: pd.DataFrame, equity_index: str, freq: str 
 
     return df_full
 
-
-
 # ============================================================
-# 🔹 RENDER
+#  RENDER
 # ============================================================
 
 def render():
@@ -335,6 +388,13 @@ def render():
             if len(trading_days) > 5:
                 last_5_days = trading_days[-5:]
                 df = df[df.index.normalize().isin(last_5_days)]
+        
+        # --- Spécifique 1 mois : ne garder que ~22 DERNIERS jours d'ouverture ---
+        if selected_period == "1 mois":
+            trading_days = sorted(df.index.normalize().unique())
+            if len(trading_days) > 22:
+                last_days = trading_days[-22:]  # ≈ 1 mois de bourse
+                df = df[df.index.normalize().isin(last_days)]
 
         # --- TABLE ---
         st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
@@ -460,6 +520,111 @@ def render():
         # ---- FIN CAS 5 JOURS ----
         #
 
+        #
+        # ---- CAS SPÉCIAL 1 MOIS : temps de marché compressé ----
+        #
+        if (
+            selected_period == "1 mois"
+            and (
+                (selected_class == "Actions" and selected_index in MARKET_HOURS)
+                or (selected_class == "Forex")
+            )
+        ):
+            # Choix de la clé pour MARKET_HOURS / compression
+            if selected_class == "Actions":
+                market_key = selected_index
+            else:  # Forex
+                market_key = "FOREX"
+
+            # Intraday compressé 30 min
+            df_plot = build_compressed_intraday_df(df, market_key, freq="30min")
+
+            if df_plot.empty:
+                st.error("Impossible de générer le graphique compressé pour 1 mois.")
+                st.markdown("</div>", unsafe_allow_html=True)
+                return
+
+            # Sécurités : s'assurer qu'on a bien 'date' et 'bar_index'
+            if "date" not in df_plot.columns:
+                df_plot = df_plot.reset_index().rename(columns={"index": "date"})
+
+            if "bar_index" not in df_plot.columns:
+                df_plot = df_plot.reset_index(drop=True)
+                df_plot["bar_index"] = range(len(df_plot))
+
+            # bornes Y
+            y_min = float(df_plot["close"].min())
+            y_max = float(df_plot["close"].max())
+            padding = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
+
+            # --------- Ticks X : un tick par jour ---------
+            df_days = df_plot.assign(day=df_plot["date"].dt.normalize())
+
+            day_starts = (
+                df_days
+                .groupby("day")["bar_index"]
+                .min()
+                .reset_index()
+            )
+
+            tick_values = day_starts["bar_index"].astype(int).tolist()
+            tick_labels = day_starts["day"].dt.strftime("%d/%m").tolist()
+
+            # Si trop de jours -> sous-échantillonnage automatiquement
+            max_labels = 15
+            if len(tick_values) > max_labels:
+                step = max(1, len(tick_values) // max_labels)
+                tick_values = tick_values[::step]
+                tick_labels = tick_labels[::step]
+
+            # Construire x_axis
+            if tick_values:
+                js_mapping = (
+                    "{"
+                    + ",".join(f"{v}: '{lab}'" for v, lab in zip(tick_values, tick_labels))
+                    + "}"
+                )
+                x_axis = alt.Axis(
+                    values=tick_values,
+                    grid=False,
+                    labelExpr=f"{js_mapping}[datum.value]",
+                )
+            else:
+                x_axis = alt.Axis(grid=False)
+
+            x_encoding = alt.X(
+                "bar_index:Q",
+                title=None,
+                axis=x_axis,
+            )
+
+            y_encoding = alt.Y(
+                "close:Q",
+                title="Prix",
+                scale=alt.Scale(domain=[y_min - padding, y_max + padding]),
+                axis=alt.Axis(grid=True),
+            )
+
+            chart = (
+                alt.Chart(df_plot)
+                .mark_line()
+                .encode(
+                    x=x_encoding,
+                    y=y_encoding,
+                    tooltip=[
+                        alt.Tooltip("date:T", title="Date/heure réelle"),
+                        alt.Tooltip("close:Q", title="Clôture", format=",.2f"),
+                    ],
+                )
+                .interactive()
+            )
+
+            st.altair_chart(chart, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+            return
+        #
+        # ---- FIN CAS 1 MOIS ----
+        #
 
         # ============================
         # CAS GÉNÉRAL POUR TOUTES LES AUTRES PÉRIODES
@@ -486,6 +651,18 @@ def render():
                     format="%H:%M",
                     labelAngle=0,
                     tickCount=24,
+                ),
+            )
+
+        elif selected_period == "5 jours":
+            # Cas général pour 5 jours quand on n'est PAS passé par le cas spécial Actions
+            x_encoding = alt.X(
+                "date:T",
+                title="Date / heure",
+                axis=alt.Axis(
+                    format="%d/%m %Hh",
+                    labelAngle=45,
+                    tickCount=10,
                 ),
             )
 
