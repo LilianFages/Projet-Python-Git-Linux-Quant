@@ -370,8 +370,18 @@ def render():
         try:
             df = load_price_data(symbol, start, end, interval)
         except Exception as e:
-            st.error(f"Erreur lors du chargement : {e}")
-            return
+            # Fallback spécial pour 1 jour : si on est en période de fermeture
+            # (week-end, jour férié...) on élargit un peu la fenêtre.
+            if selected_period == "1 jour":
+                alt_start = start - timedelta(days=3)
+                try:
+                    df = load_price_data(symbol, alt_start, end, interval)
+                except Exception as e2:
+                    st.error(f"Erreur lors du chargement (fallback 1 jour) : {e2}")
+                    return
+            else:
+                st.error(f"Erreur lors du chargement : {e}")
+                return
 
         # --- Filter (heures de marché / week-ends / resampling intraday) ---
         df = filter_market_hours_and_weekends(
@@ -381,6 +391,17 @@ def render():
             period_label=selected_period,
             interval=interval,
         )
+
+        # --- Spécifique 1 jour : ne garder que le DERNIER jour de cotation ---
+        if selected_period == "1 jour":
+            # On prend le dernier timestamp dispo → sa date (sans heure)
+            last_ts = df.index.max()
+            if pd.isna(last_ts):
+                st.error("Aucune donnée disponible pour la période 1 jour.")
+                return
+            last_day = last_ts.normalize()
+            df = df[df.index.normalize() == last_day]
+
 
         # --- Spécifique 5 jours : ne garder que les 5 DERNIERS jours d'ouverture ---
         if selected_period == "5 jours":
