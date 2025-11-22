@@ -87,6 +87,7 @@ MARKET_HOURS = {
     "S&P 500": (dtime(15,30), dtime(21,45)),  # NYSE/Nasdaq en heure de Paris
     "CAC 40": (dtime(9,0), dtime(17,30)),
     "FOREX": (dtime(0,0), dtime(23,55)),
+    "Matières premières" : (dtime(0,0), dtime(23,55)),
 }
 
 
@@ -204,8 +205,8 @@ def filter_market_hours_and_weekends(
 
         return df
 
-    # --- Cas Forex : enlever seulement les week-ends ---
-    if asset_class == "Forex":
+    # --- Cas Forex / Matières premières : enlever seulement les week-ends ---
+    if asset_class in ("Forex", "Matières premières"):  
         # FX cote quasi 24h en semaine, mais fermé le week-end
         df = df[df.index.dayofweek < 5]
         return df
@@ -243,8 +244,8 @@ def build_compressed_intraday_df(
 
     df = df.sort_index().copy()
 
-    # 🔹 Branche spéciale FOREX : on ne dépend pas des heures d'ouverture
-    if equity_index == "FOREX":
+    #  Branche spéciale FOREX / COMMODITIES : on ne dépend pas des heures d'ouverture
+    if equity_index in ("FOREX", "COMMODITIES"):
         # 1) Enlever les week-ends (samedi/dimanche)
         df = df[df.index.dayofweek < 5]
         if df.empty:
@@ -255,14 +256,14 @@ def build_compressed_intraday_df(
         if df_resampled.empty:
             return pd.DataFrame()
 
-        # 🔹 IMPORTANT : ENLEVER À NOUVEAU LES WEEK-ENDS APRÈS RESAMPLE
+        #  IMPORTANT : ENLEVER À NOUVEAU LES WEEK-ENDS APRÈS RESAMPLE
         df_resampled = df_resampled[df_resampled.index.dayofweek < 5]
-        
+
         # 3) Compression : bar_index = 0,1,2,... assure un temps continu
         df_full = df_resampled.reset_index().rename(columns={"index": "date"})
         df_full["bar_index"] = range(len(df_full))
 
-        # Flatten si MultiIndex (cas yfinance FX)
+        # Flatten si MultiIndex (cas yfinance avec ticker)
         if isinstance(df_full.columns, pd.MultiIndex):
             df_full.columns = df_full.columns.get_level_values(0)
 
@@ -528,13 +529,16 @@ def render():
             and (
                 (selected_class == "Actions" and selected_index in MARKET_HOURS)
                 or (selected_class == "Forex")
+                or (selected_class == "Matières premières")
             )
         ):
             # Choix de la clé pour MARKET_HOURS / compression
             if selected_class == "Actions":
                 market_key = selected_index
-            else:  # Forex
+            elif selected_class == "Forex":
                 market_key = "FOREX"
+            else:  # Matières premières
+                market_key = "COMMODITIES"
 
             # Intraday compressé 30 min
             df_plot = build_compressed_intraday_df(df, market_key, freq="30min")
