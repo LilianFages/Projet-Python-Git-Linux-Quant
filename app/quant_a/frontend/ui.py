@@ -485,11 +485,62 @@ def render():
                 last_days = trading_days[-22:]  # ≈ 1 mois de bourse
                 df = df[df.index.normalize().isin(last_days)]
 
-        # --- TABLE ---
+        # --- SNAPSHOT ACTIF / STATISTIQUES RAPIDES ---
+        # On a parfois des colonnes en MultiIndex (yfinance) -> on aplatit pour les calculs
+        df_stats = df.copy()
+        if isinstance(df_stats.columns, pd.MultiIndex):
+            df_stats.columns = df_stats.columns.get_level_values(0)
+
+        # Dernier point
+        last_ts = df_stats.index.max()
+        last_row = df_stats.loc[last_ts]
+
+        # Gestion robustes des colonnes
+        close_val = float(last_row.get("close", float("nan")))
+        open_val = float(last_row.get("open", float("nan")))
+        high_val = float(df_stats["high"].max()) if "high" in df_stats.columns else float("nan")
+        low_val  = float(df_stats["low"].min()) if "low" in df_stats.columns else float("nan")
+        vol_val  = float(last_row.get("volume", float("nan"))) if "volume" in df_stats.columns else float("nan")
+
+        # Variation par rapport à la clôture précédente (si possible)
+        if len(df_stats) >= 2 and "close" in df_stats.columns:
+            prev_close = float(df_stats["close"].iloc[-2])
+            pct_change = (close_val / prev_close - 1.0) * 100.0 if prev_close != 0 else float("nan")
+        else:
+            pct_change = float("nan")
+
         st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
-        st.subheader("Dernières observations")
-        st.dataframe(df.tail())
+        st.subheader("Résumé de l'actif")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric(
+                "Dernier prix",
+                f"{close_val:,.2f}" if pd.notna(close_val) else "N/A",
+                f"{pct_change:+.2f} %" if pd.notna(pct_change) else None,
+            )
+
+        with col2:
+            st.metric(
+                "Plus haut (période)",
+                f"{high_val:,.2f}" if pd.notna(high_val) else "N/A",
+            )
+
+        with col3:
+            st.metric(
+                "Plus bas (période)",
+                f"{low_val:,.2f}" if pd.notna(low_val) else "N/A",
+            )
+
+        # Ligne d’info complémentaire
+        st.caption(
+            f"Dernier point : {last_ts.strftime('%d/%m/%Y %H:%M')}  —  "
+            f"Volume : {vol_val:,.0f}" if pd.notna(vol_val) else f"Dernier point : {last_ts}"
+        )
+
         st.markdown("</div>", unsafe_allow_html=True)
+
 
         # --- GRAPH ---
         st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
