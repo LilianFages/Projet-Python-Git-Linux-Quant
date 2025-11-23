@@ -596,7 +596,11 @@ def render():
                     x=x_encoding,
                     y=y_encoding,
                     tooltip=[
-                        alt.Tooltip("date:T", title="Date/heure réelle"),
+                        alt.Tooltip(
+                            "date:T",
+                            title="Date/heure réelle",
+                            format="%d/%m/%Y %H:%M",
+                        ),
                         alt.Tooltip("close:Q", title="Clôture", format=",.2f"),
                     ],
                 )
@@ -708,7 +712,7 @@ def render():
                     x=x_encoding,
                     y=y_encoding,
                     tooltip=[
-                        alt.Tooltip("date:T", title="Date/heure réelle"),
+                        alt.Tooltip("date:T", title="Date/heure réelle", format="%d/%m/%Y %H:%M",),
                         alt.Tooltip("close:Q", title="Clôture", format=",.2f"),
                     ],
                 )
@@ -816,6 +820,20 @@ def render():
                     tickCount=10,
                 ),
             )
+        
+        # Tooltip : date + heure pour les périodes intraday, date seule sinon
+        if selected_period in ("1 jour", "5 jours", "1 mois"):
+            date_tooltip = alt.Tooltip(
+                "date:T",
+                title="Date/heure",
+                format="%d/%m/%Y %H:%M",
+            )
+        else:
+            date_tooltip = alt.Tooltip(
+                "date:T",
+                title="Date",
+                format="%d/%m/%Y",
+            )
 
         chart = (
             alt.Chart(df_plot)
@@ -827,7 +845,10 @@ def render():
                     title="Prix",
                     scale=alt.Scale(domain=[y_min - padding, y_max + padding]),
                 ),
-                tooltip=["date:T", "close:Q"],
+                tooltip=[
+                    date_tooltip,
+                    alt.Tooltip("close:Q", title="Clôture", format=",.2f"),
+                ],
             )
             .interactive()
         )
