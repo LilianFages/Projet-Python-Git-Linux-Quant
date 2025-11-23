@@ -36,17 +36,23 @@ FOREX_PAIRS = {
     "USDJPY=X": "USD / JPY",
 }
 
-COMMODITIES = {
-    "GC=F":  "Gold (COMEX)",
-    "SI=F":  "Silver (COMEX)",
-    "CL=F":  "Crude Oil WTI",
-    "BZ=F":  "Brent Crude Oil",
-    "NG=F":  "Natural Gas",
-    "HG=F":  "Copper",
-    "ZS=F":  "Soybean",
-    "ZC=F":  "Corn",
-    "ZW=F":  "Wheat",
+COMMODITY_SETTINGS = {
+    # flux propres → intraday OK
+    "GC=F": {"name": "Gold (COMEX)", "intraday_ok": True},
+    "SI=F": {"name": "Silver (COMEX)", "intraday_ok": True},
+    "CL=F": {"name": "Crude Oil WTI", "intraday_ok": True},
+    "HG=F": {"name": "Copper", "intraday_ok": True},
+
+    # flux foireux → pas d’intraday
+    "BZ=F": {"name": "Brent Crude Oil", "intraday_ok": False},
+    "NG=F": {"name": "Natural Gas", "intraday_ok": False},
+    "ZS=F": {"name": "Soybean", "intraday_ok": False},
+    "ZC=F": {"name": "Corn", "intraday_ok": False},
+    "ZW=F": {"name": "Wheat", "intraday_ok": False},
 }
+
+def commodity_intraday_ok(symbol: str) -> bool:
+    return COMMODITY_SETTINGS.get(symbol, {}).get("intraday_ok", True)
 
 # ========= CRYPTO ========= #
 # paires contre USD, très liquides
@@ -85,7 +91,7 @@ ETF_ASSETS = {
 ASSET_CLASSES = {
     "Actions": EQUITY_INDICES,          # dict d'indices -> dict symbol -> label
     "Forex": FOREX_PAIRS,               # dict symbol -> label
-    "Matières premières": COMMODITIES,  # dict symbol -> label
+    "Matières premières": COMMODITY_SETTINGS,  # dict symbol -> label
     "Crypto": CRYPTO_ASSETS,            # dict symbol -> label
     "ETF": ETF_ASSETS,                  # dict symbol -> label
 }

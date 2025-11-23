@@ -8,6 +8,7 @@ from app.common.config import (
     DEFAULT_ASSET_CLASS,
     DEFAULT_EQUITY_INDEX,
     DEFAULT_SINGLE_ASSET,
+    commodity_intraday_ok,
 )
 
 from app.common.data_loader import load_price_data
@@ -175,8 +176,8 @@ def filter_market_hours_and_weekends(
 
     df = df.sort_index().copy()
 
-    # --- Cas Actions : logique existante inchangée ---
-    if asset_class == "Actions" and equity_index in MARKET_HOURS:
+    # --- Cas Actions & ETF : même logique de marché ---
+    if asset_class in ("Actions", "ETF") and equity_index in MARKET_HOURS:
 
         # 1) Enlever les week-ends
         df = df[df.index.dayofweek < 5]
@@ -343,10 +344,6 @@ def render():
     st.markdown("<div class='quant-title'>Quant A — Single Asset Analysis</div>", unsafe_allow_html=True)
     st.markdown("<div class='quant-subtitle'>Analyse et backtests sur un actif financier.</div>", unsafe_allow_html=True)
 
-    # --- Périodes ---
-    periods = ["1 jour","5 jours","1 mois","6 mois","Année écoulée","1 année","5 années","Tout l'historique"]
-    selected_period = st.radio("Sélectionner la période", periods, horizontal=True, label_visibility="collapsed")
-
     # --- Sidebar ---
     st.sidebar.subheader("Options (Quant A)")
 
@@ -362,13 +359,56 @@ def render():
         symbols_dict = ASSET_CLASSES[selected_class]
 
     options = list(symbols_dict.items())
-    selected_pair = st.sidebar.selectbox("Choisir un actif", options, format_func=lambda x: x[1])
+
+
+    def format_option(opt):
+        key, val = opt
+        # si val est un dict (ex: {"name": "...", "intraday_ok": False})
+        if isinstance(val, dict):
+            return val.get("name", key)
+        # sinon on convertit simplement en texte
+        return str(val)
+
+    selected_pair = st.sidebar.selectbox(
+        "Choisir un actif",
+        options,
+        format_func=format_option,
+    )
     symbol = selected_pair[0]
+
+    # Pour les ETF, on les traite comme des actions US (horaires S&P 500)
+    if selected_class == "ETF":
+        selected_index = "S&P 500"
+
+    # --- Périodes disponibles ---
+    base_periods = ["1 jour","5 jours","1 mois","6 mois","Année écoulée","1 année","5 années","Tout l'historique"]
+
+    # Si matière première sans intraday → retirer "1 jour"
+    if selected_class == "Matières premières" and not commodity_intraday_ok(symbol):
+        periods = [p for p in base_periods if p != "1 jour"]
+    else:
+        periods = base_periods
+
+    selected_period = st.radio(
+        "Sélectionner la période",
+        periods,
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+
+    
 
     # --- BOUTON ---
     if st.button("Charger les données (Quant A)"):
 
         start, end, interval = get_period_dates_and_interval(selected_period)
+
+        # --- Patch : pas d'intraday pour certaines matières premières sur 5 jours / 1 mois ---
+        if selected_class == "Matières premières" and selected_period in ("5 jours", "1 mois"):
+            if not commodity_intraday_ok(symbol):
+                # On force l'intervalle en daily pour éviter les données intraday foireuses
+                interval = "1d"
+                st.info("Données intraday non fiables pour cet actif : affichage en données journalières.")
 
         # --- Load Yahoo Finance ---
         try:
@@ -438,11 +478,12 @@ def render():
         #
         if (
             selected_period == "5 jours"
-            and selected_class == "Actions"
+            and selected_class in ("Actions", "ETF")
             and selected_index in MARKET_HOURS
         ):
             # Intraday compressé 15 min uniquement heures de marché
-            df_plot = build_compressed_intraday_df(df, selected_index, freq="15min")
+            market_key = selected_index  # Actions ou ETF, on a mis "S&P 500" pour les ETF
+            df_plot = build_compressed_intraday_df(df, market_key, freq="15min")
 
             if df_plot.empty:
                 st.error("Impossible de générer le graphique compressé pour 5 jours.")
@@ -553,13 +594,16 @@ def render():
         if (
             selected_period == "1 mois"
             and (
-                (selected_class == "Actions" and selected_index in MARKET_HOURS)
+                (selected_class in ("Actions", "ETF") and selected_index in MARKET_HOURS)
                 or (selected_class == "Forex")
-                or (selected_class == "Matières premières")
+                or (
+                    selected_class == "Matières premières"
+                    and commodity_intraday_ok(symbol)   # 👈 seulement celles qui supportent l’intraday
+                )
             )
         ):
             # Choix de la clé pour MARKET_HOURS / compression
-            if selected_class == "Actions":
+            if selected_class in ("Actions", "ETF"):
                 market_key = selected_index
             elif selected_class == "Forex":
                 market_key = "FOREX"
