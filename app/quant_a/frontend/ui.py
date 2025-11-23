@@ -418,7 +418,90 @@ def render():
         label_visibility="collapsed",
     )
 
-    
+        # --- Stratégie (Quant A) ---
+    st.sidebar.markdown("### Stratégie")
+
+    strategy_name = st.sidebar.selectbox(
+        "Choisir une stratégie",
+        ["Buy & Hold", "SMA Crossover", "RSI Strategy", "Momentum"],
+    )
+
+    # Paramètres stratégie
+    if strategy_name == "Buy & Hold":
+        bh_initial_cash = st.sidebar.number_input(
+            "Capital initial",
+            min_value=1000,
+            value=10_000,
+            step=1000,
+        )
+        strategy_params = {
+            "type": "buy_hold",
+            "initial_cash": bh_initial_cash,
+        }
+
+    elif strategy_name == "SMA Crossover":
+        sma_short = st.sidebar.number_input(
+            "SMA courte",
+            min_value=5,
+            value=20,
+            step=1,
+        )
+        sma_long = st.sidebar.number_input(
+            "SMA longue",
+            min_value=10,
+            value=50,
+            step=1,
+        )
+        strategy_params = {
+            "type": "sma_crossover",
+            "short_window": sma_short,
+            "long_window": sma_long,
+            "initial_cash": 10_000,
+        }
+
+    elif strategy_name == "RSI Strategy":
+        rsi_window = st.sidebar.number_input(
+            "Fenêtre RSI",
+            min_value=5,
+            value=14,
+            step=1,
+        )
+        rsi_oversold = st.sidebar.number_input(
+            "Seuil survente",
+            min_value=0,
+            max_value=100,
+            value=30,
+            step=1,
+        )
+        rsi_overbought = st.sidebar.number_input(
+            "Seuil surachat",
+            min_value=0,
+            max_value=100,
+            value=70,
+            step=1,
+        )
+        strategy_params = {
+            "type": "rsi",
+            "window": rsi_window,
+            "oversold": rsi_oversold,
+            "overbought": rsi_overbought,
+            "initial_cash": 10_000,
+        }
+
+    elif strategy_name == "Momentum":
+        mom_window = st.sidebar.number_input(
+            "Fenêtre momentum (jours)",
+            min_value=2,
+            value=10,
+            step=1,
+        )
+        strategy_params = {
+            "type": "momentum",
+            "lookback": mom_window,
+            "initial_cash": 10_000,
+        }
+
+
 
     # --- BOUTON ---
     if st.button("Charger les données (Quant A)"):
@@ -484,6 +567,12 @@ def render():
             if len(trading_days) > 22:
                 last_days = trading_days[-22:]  # ≈ 1 mois de bourse
                 df = df[df.index.normalize().isin(last_days)]
+
+
+        from app.quant_a.backend.strategies import run_strategy
+        # Après avoir obtenu df (filtré, bonnes dates) :
+        strategy_result = run_strategy(df, strategy_params)
+
 
         # --- SNAPSHOT ACTIF / STATISTIQUES RAPIDES ---
         # On a parfois des colonnes en MultiIndex (yfinance) -> on aplatit pour les calculs
