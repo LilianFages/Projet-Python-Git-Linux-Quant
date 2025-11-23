@@ -89,7 +89,24 @@ MARKET_HOURS = {
     "CAC 40": (dtime(9,0), dtime(17,30)),
     "FOREX": (dtime(0,0), dtime(23,55)),
     "Matières premières" : (dtime(0,0), dtime(23,55)),
+    "Indices": None,  # géré plus bas
+    # Indices Asie (heures converties en heure de Paris, approximatives)
+    "Nikkei 225": (dtime(1,0), dtime(7,0)),   # 9:00-15:00 JST ≈ 1:00-7:00 Paris
+    "Hang Seng": (dtime(2,30), dtime(9,0)),   # 9:30-16:00 HKT ≈ 2:30-9:00 Paris
 }
+
+# Mapping symbole Yahoo -> marché boursier utilisé pour filtrage intraday
+INDEX_MARKET_MAP = {
+    "^FCHI": "CAC 40",      # CAC 40
+    "^GSPC": "S&P 500",     # S&P 500
+    "^NDX": "S&P 500",      # Nasdaq 100
+    "^DJI": "S&P 500",      # Dow Jones
+    "^STOXX50E": "CAC 40",  # EuroStoxx 50 (horaires EU)
+    "^GDAXI": "CAC 40",     # DAX (horaires EU)
+    "^N225": "Nikkei 225",  #  Nikkei
+    "^HSI": "Hang Seng",    #  Hang Seng
+}
+
 
 
 def _resample_intraday_by_session(df: pd.DataFrame, equity_index: str, freq: str) -> pd.DataFrame:
@@ -177,7 +194,7 @@ def filter_market_hours_and_weekends(
     df = df.sort_index().copy()
 
     # --- Cas Actions & ETF : même logique de marché ---
-    if asset_class in ("Actions", "ETF") and equity_index in MARKET_HOURS:
+    if asset_class in ("Actions", "ETF", "Indices") and equity_index in MARKET_HOURS:
 
         # 1) Enlever les week-ends
         df = df[df.index.dayofweek < 5]
@@ -380,6 +397,11 @@ def render():
     if selected_class == "ETF":
         selected_index = "S&P 500"
 
+    # Pour les indices, on mappe le symbole vers un marché (CAC 40 ou S&P 500)
+    elif selected_class == "Indices":
+    # INDEX_MARKET_MAP est défini en haut du fichier, juste après MARKET_HOURS
+        selected_index = INDEX_MARKET_MAP.get(symbol, "S&P 500")
+
     # --- Périodes disponibles ---
     base_periods = ["1 jour","5 jours","1 mois","6 mois","Année écoulée","1 année","5 années","Tout l'historique"]
 
@@ -478,7 +500,7 @@ def render():
         #
         if (
             selected_period == "5 jours"
-            and selected_class in ("Actions", "ETF")
+            and selected_class in ("Actions", "ETF", "Indices")
             and selected_index in MARKET_HOURS
         ):
             # Intraday compressé 15 min uniquement heures de marché
@@ -594,7 +616,7 @@ def render():
         if (
             selected_period == "1 mois"
             and (
-                (selected_class in ("Actions", "ETF") and selected_index in MARKET_HOURS)
+                (selected_class in ("Actions", "ETF", "Indices") and selected_index in MARKET_HOURS)
                 or (selected_class == "Forex")
                 or (
                     selected_class == "Matières premières"
@@ -603,7 +625,7 @@ def render():
             )
         ):
             # Choix de la clé pour MARKET_HOURS / compression
-            if selected_class in ("Actions", "ETF"):
+            if selected_class in ("Actions", "ETF", "Indices"):
                 market_key = selected_index
             elif selected_class == "Forex":
                 market_key = "FOREX"

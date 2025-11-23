@@ -54,6 +54,18 @@ COMMODITY_SETTINGS = {
 def commodity_intraday_ok(symbol: str) -> bool:
     return COMMODITY_SETTINGS.get(symbol, {}).get("intraday_ok", True)
 
+INDICES = {
+    "^FCHI": "CAC 40",
+    "^GSPC": "S&P 500",
+    "^NDX": "Nasdaq 100",
+    "^DJI": "Dow Jones",
+    "^STOXX50E": "EuroStoxx 50",
+    "^GDAXI": "DAX",
+    "^FTSE": "FTSE 100",
+    "^N225": "Nikkei 225",
+    "^HSI": "Hang Seng",
+}
+
 # ========= CRYPTO ========= #
 # paires contre USD, très liquides
 
@@ -94,6 +106,7 @@ ASSET_CLASSES = {
     "Matières premières": COMMODITY_SETTINGS,  # dict symbol -> label
     "Crypto": CRYPTO_ASSETS,            # dict symbol -> label
     "ETF": ETF_ASSETS,                  # dict symbol -> label
+    "Indices": INDICES,
 }
 
 DEFAULT_ASSET_CLASS = "Actions"
