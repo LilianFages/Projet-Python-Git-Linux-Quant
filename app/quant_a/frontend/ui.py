@@ -2,7 +2,8 @@ import streamlit as st
 from datetime import datetime, timedelta, time as dtime
 import altair as alt
 import pandas as pd
-
+from app.quant_a.backend.strategies import run_strategy
+from app.quant_a.frontend.charts import display_strategy_chart
 from app.common.config import (
     ASSET_CLASSES,
     DEFAULT_ASSET_CLASS,
@@ -418,575 +419,344 @@ def render():
         label_visibility="collapsed",
     )
 
-        # --- Stratégie (Quant A) ---
-    st.sidebar.markdown("### Stratégie")
-
-    strategy_name = st.sidebar.selectbox(
-        "Choisir une stratégie",
-        ["Buy & Hold", "SMA Crossover", "RSI Strategy", "Momentum"],
-    )
-
-    # Paramètres stratégie
-    if strategy_name == "Buy & Hold":
-        bh_initial_cash = st.sidebar.number_input(
-            "Capital initial",
-            min_value=1000,
-            value=10_000,
-            step=1000,
-        )
-        strategy_params = {
-            "type": "buy_hold",
-            "initial_cash": bh_initial_cash,
-        }
-
-    elif strategy_name == "SMA Crossover":
-        sma_short = st.sidebar.number_input(
-            "SMA courte",
-            min_value=5,
-            value=20,
-            step=1,
-        )
-        sma_long = st.sidebar.number_input(
-            "SMA longue",
-            min_value=10,
-            value=50,
-            step=1,
-        )
-        strategy_params = {
-            "type": "sma_crossover",
-            "short_window": sma_short,
-            "long_window": sma_long,
-            "initial_cash": 10_000,
-        }
-
-    elif strategy_name == "RSI Strategy":
-        rsi_window = st.sidebar.number_input(
-            "Fenêtre RSI",
-            min_value=5,
-            value=14,
-            step=1,
-        )
-        rsi_oversold = st.sidebar.number_input(
-            "Seuil survente",
-            min_value=0,
-            max_value=100,
-            value=30,
-            step=1,
-        )
-        rsi_overbought = st.sidebar.number_input(
-            "Seuil surachat",
-            min_value=0,
-            max_value=100,
-            value=70,
-            step=1,
-        )
-        strategy_params = {
-            "type": "rsi",
-            "window": rsi_window,
-            "oversold": rsi_oversold,
-            "overbought": rsi_overbought,
-            "initial_cash": 10_000,
-        }
-
-    elif strategy_name == "Momentum":
-        mom_window = st.sidebar.number_input(
-            "Fenêtre momentum (jours)",
-            min_value=2,
-            value=10,
-            step=1,
-        )
-        strategy_params = {
-            "type": "momentum",
-            "lookback": mom_window,
-            "initial_cash": 10_000,
-        }
-
-
-
-    # --- BOUTON ---
-    if st.button("Charger les données (Quant A)"):
-
-        start, end, interval = get_period_dates_and_interval(selected_period)
-
-        # --- Patch : pas d'intraday pour certaines matières premières sur 5 jours / 1 mois ---
-        if selected_class == "Matières premières" and selected_period in ("5 jours", "1 mois"):
-            if not commodity_intraday_ok(symbol):
-                # On force l'intervalle en daily pour éviter les données intraday foireuses
-                interval = "1d"
-                st.info("Données intraday non fiables pour cet actif : affichage en données journalières.")
-
-        # --- Load Yahoo Finance ---
-        try:
-            df = load_price_data(symbol, start, end, interval)
-        except Exception as e:
-            # Fallback spécial pour 1 jour : si on est en période de fermeture
-            # (week-end, jour férié...) on élargit un peu la fenêtre.
-            # -> PAS nécessaire pour les cryptos (marché 24/7)
-            if selected_period == "1 jour" and selected_class != "Crypto":
-                alt_start = start - timedelta(days=3)
-                try:
-                    df = load_price_data(symbol, alt_start, end, interval)
-                except Exception as e2:
-                    st.error(f"Erreur lors du chargement (fallback 1 jour) : {e2}")
-                    return
-            else:
-                st.error(f"Erreur lors du chargement : {e}")
-                return
-
-        # --- Filter (heures de marché / week-ends / resampling intraday) ---
-        df = filter_market_hours_and_weekends(
-            df,
-            asset_class=selected_class,
-            equity_index=selected_index,
-            period_label=selected_period,
-            interval=interval,
-        )
-
-        # --- Spécifique 1 jour : ne garder que le DERNIER jour de cotation ---
-        if selected_period == "1 jour":
-            # On prend le dernier timestamp dispo → sa date (sans heure)
-            last_ts = df.index.max()
-            if pd.isna(last_ts):
-                st.error("Aucune donnée disponible pour la période 1 jour.")
-                return
-            last_day = last_ts.normalize()
-            df = df[df.index.normalize() == last_day]
-
-
-        # --- Spécifique 5 jours : ne garder que les 5 DERNIERS jours d'ouverture ---
-        if selected_period == "5 jours":
-            # normalise() enlève l'heure : on ne garde que la date
-            trading_days = sorted(df.index.normalize().unique())
-            if len(trading_days) > 5:
-                last_5_days = trading_days[-5:]
-                df = df[df.index.normalize().isin(last_5_days)]
-        
-        # --- Spécifique 1 mois : ne garder que ~22 DERNIERS jours d'ouverture ---
-        if selected_period == "1 mois" and selected_class != "Crypto":
-            trading_days = sorted(df.index.normalize().unique())
-            if len(trading_days) > 22:
-                last_days = trading_days[-22:]  # ≈ 1 mois de bourse
-                df = df[df.index.normalize().isin(last_days)]
-
-
-        from app.quant_a.backend.strategies import run_strategy
-        # Après avoir obtenu df (filtré, bonnes dates) :
-        strategy_result = run_strategy(df, strategy_params)
-
-
-        # --- SNAPSHOT ACTIF / STATISTIQUES RAPIDES ---
-        # On a parfois des colonnes en MultiIndex (yfinance) -> on aplatit pour les calculs
-        df_stats = df.copy()
-        if isinstance(df_stats.columns, pd.MultiIndex):
-            df_stats.columns = df_stats.columns.get_level_values(0)
-
-        # Dernier point
-        last_ts = df_stats.index.max()
-        last_row = df_stats.loc[last_ts]
-
-        # Gestion robustes des colonnes
-        close_val = float(last_row.get("close", float("nan")))
-        open_val = float(last_row.get("open", float("nan")))
-        high_val = float(df_stats["high"].max()) if "high" in df_stats.columns else float("nan")
-        low_val  = float(df_stats["low"].min()) if "low" in df_stats.columns else float("nan")
-        vol_val  = float(last_row.get("volume", float("nan"))) if "volume" in df_stats.columns else float("nan")
-
-        # Variation par rapport à la clôture précédente (si possible)
-        if len(df_stats) >= 2 and "close" in df_stats.columns:
-            prev_close = float(df_stats["close"].iloc[-2])
-            pct_change = (close_val / prev_close - 1.0) * 100.0 if prev_close != 0 else float("nan")
-        else:
-            pct_change = float("nan")
-
+    def render_strategy_section(df: pd.DataFrame, selected_period: str):
+        """
+        Section sur la page principale :
+        - choix de la stratégie
+        - paramètres
+        - exécution du backtest
+        - graphique de la stratégie (courbe d'équité)
+        """
         st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
-        st.subheader("Résumé de l'actif")
+        st.subheader("Stratégie & Backtest")
 
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            st.metric(
-                "Dernier prix",
-                f"{close_val:,.2f}" if pd.notna(close_val) else "N/A",
-                f"{pct_change:+.2f} %" if pd.notna(pct_change) else None,
-            )
-
-        with col2:
-            st.metric(
-                "Plus haut (période)",
-                f"{high_val:,.2f}" if pd.notna(high_val) else "N/A",
-            )
-
-        with col3:
-            st.metric(
-                "Plus bas (période)",
-                f"{low_val:,.2f}" if pd.notna(low_val) else "N/A",
-            )
-
-        # Ligne d’info complémentaire
-        st.caption(
-            f"Dernier point : {last_ts.strftime('%d/%m/%Y %H:%M')}  —  "
-            f"Volume : {vol_val:,.0f}" if pd.notna(vol_val) else f"Dernier point : {last_ts}"
+        # --- Choix de la stratégie ---
+        strategy_name = st.selectbox(
+            "Choisir une stratégie",
+            ["Buy & Hold", "SMA Crossover", "RSI Strategy", "Momentum"],
         )
+
+        # --- Paramètres selon la stratégie ---
+        if strategy_name == "Buy & Hold":
+            bh_initial_cash = st.number_input(
+                "Capital initial",
+                min_value=1000,
+                value=10_000,
+                step=1000,
+            )
+            strategy_params = {
+                "type": "buy_hold",
+                "initial_cash": bh_initial_cash,
+            }
+
+        elif strategy_name == "SMA Crossover":
+            sma_short = st.number_input(
+                "SMA courte",
+                min_value=5,
+                value=20,
+                step=1,
+            )
+            sma_long = st.number_input(
+                "SMA longue",
+                min_value=10,
+                value=50,
+                step=1,
+            )
+            strategy_params = {
+                "type": "sma_crossover",
+                "short_window": sma_short,
+                "long_window": sma_long,
+                "initial_cash": 10_000,
+            }
+
+        elif strategy_name == "RSI Strategy":
+            rsi_window = st.number_input(
+                "Fenêtre RSI",
+                min_value=5,
+                value=14,
+                step=1,
+            )
+            rsi_oversold = st.number_input(
+                "Seuil survente",
+                min_value=0,
+                max_value=100,
+                value=30,
+                step=1,
+            )
+            rsi_overbought = st.number_input(
+                "Seuil surachat",
+                min_value=0,
+                max_value=100,
+                value=70,
+                step=1,
+            )
+            strategy_params = {
+                "type": "rsi",
+                "window": rsi_window,
+                "oversold": rsi_oversold,
+                "overbought": rsi_overbought,
+                "initial_cash": 10_000,
+            }
+
+        else:  # Momentum
+            mom_window = st.number_input(
+                "Fenêtre momentum (jours)",
+                min_value=2,
+                value=10,
+                step=1,
+            )
+            strategy_params = {
+                "type": "momentum",
+                "lookback": mom_window,
+                "initial_cash": 10_000,
+            }
+
+        # --- Exécution du backtest ---
+        try:
+            strategy_result = run_strategy(df, strategy_params)
+        except Exception as e:
+            st.warning(f"Impossible d'exécuter la stratégie : {e}")
+            st.markdown("</div>", unsafe_allow_html=True)
+            return
+
+        # --- Graphique de la stratégie (via charts.py) ---
+        display_strategy_chart(strategy_result, selected_period)
 
         st.markdown("</div>", unsafe_allow_html=True)
 
 
-        # --- GRAPH ---
-        st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
-        st.subheader("Graphique")
+    # REALOAD GRAPH
 
-        #
-        # ---- CAS SPÉCIAL 5 JOURS : temps de marché compressé ----
-        #
-        if (
-            selected_period == "5 jours"
-            and selected_class in ("Actions", "ETF", "Indices")
-            and selected_index in MARKET_HOURS
-        ):
-            # Intraday compressé 15 min uniquement heures de marché
-            market_key = selected_index  # Actions ou ETF, on a mis "S&P 500" pour les ETF
-            df_plot = build_compressed_intraday_df(df, market_key, freq="15min")
+    start, end, interval = get_period_dates_and_interval(selected_period)
 
-            if df_plot.empty:
-                st.error("Impossible de générer le graphique compressé pour 5 jours.")
-                st.markdown("</div>", unsafe_allow_html=True)
+    # --- Patch : pas d'intraday pour certaines matières premières sur 5 jours / 1 mois ---
+    if selected_class == "Matières premières" and selected_period in ("5 jours", "1 mois"):
+        if not commodity_intraday_ok(symbol):
+            # On force l'intervalle en daily pour éviter les données intraday foireuses
+            interval = "1d"
+            st.info("Données intraday non fiables pour cet actif : affichage en données journalières.")
+
+    # --- Load Yahoo Finance ---
+    try:
+        df = load_price_data(symbol, start, end, interval)
+    except Exception as e:
+        # Fallback spécial pour 1 jour : si on est en période de fermeture
+        # (week-end, jour férié...) on élargit un peu la fenêtre.
+        # -> PAS nécessaire pour les cryptos (marché 24/7)
+        if selected_period == "1 jour" and selected_class != "Crypto":
+            alt_start = start - timedelta(days=3)
+            try:
+                df = load_price_data(symbol, alt_start, end, interval)
+            except Exception as e2:
+                st.error(f"Erreur lors du chargement (fallback 1 jour) : {e2}")
                 return
-
-            # Sécurités : s'assurer qu'on a bien 'date' et 'bar_index'
-            if "date" not in df_plot.columns:
-                df_plot = df_plot.reset_index().rename(columns={"index": "date"})
-
-            if "bar_index" not in df_plot.columns:
-                df_plot = df_plot.reset_index(drop=True)
-                df_plot["bar_index"] = range(len(df_plot))
-
-            # bornes Y
-            y_min = float(df_plot["close"].min())
-            y_max = float(df_plot["close"].max())
-            padding = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
-
-            # --------- Ticks X : jours + 18h / 20h ---------
-            df_days = df_plot.assign(day=df_plot["date"].dt.normalize())
-
-            # 1) début de chaque jour -> label = jour du mois
-            day_starts = (
-                df_days
-                .groupby("day")["bar_index"]
-                .min()
-                .reset_index()
-            )
-
-            tick_values: list[int] = []
-            tick_labels: list[str] = []
-
-            for _, row in day_starts.iterrows():
-                tick_values.append(int(row["bar_index"]))
-                tick_labels.append(str(row["day"].day))
-
-
-            # 2) pour chaque jour, barres à 18h et 20h si elles existent
-            time_marks = df_plot[
-                df_plot["date"].dt.hour.isin([18, 20])
-                & (df_plot["date"].dt.minute == 0)
-            ][["bar_index", "date"]].drop_duplicates(subset=["bar_index"])
-
-            for _, row in time_marks.iterrows():
-                v = int(row["bar_index"])
-                lab = f"{row['date'].hour}h"
-                if v not in tick_values:
-                    tick_values.append(v)
-                    tick_labels.append(lab)
-
-            # On trie par position croissante
-            ticks_sorted = sorted(zip(tick_values, tick_labels), key=lambda x: x[0])
-            tick_values = [v for v, _ in ticks_sorted]
-            tick_labels = [lab for _, lab in ticks_sorted]
-
-            if tick_values:
-                js_mapping = (
-                    "{"
-                    + ",".join(f"{v}: '{lab}'" for v, lab in zip(tick_values, tick_labels))
-                    + "}"
-                )
-                x_axis = alt.Axis(
-                    values=tick_values,
-                    grid=False,
-                    labelExpr=f"{js_mapping}[datum.value]",
-                )
-            else:
-                x_axis = alt.Axis(grid=False)
-
-            x_encoding = alt.X(
-                "bar_index:Q",
-                title=None,
-                axis=x_axis,
-            )
-
-            y_encoding = alt.Y(
-                "close:Q",
-                title="Prix",
-                scale=alt.Scale(domain=[y_min - padding, y_max + padding]),
-                axis=alt.Axis(grid=True),
-            )
-
-            chart = (
-                alt.Chart(df_plot)
-                .mark_line()
-                .encode(
-                    x=x_encoding,
-                    y=y_encoding,
-                    tooltip=[
-                        alt.Tooltip(
-                            "date:T",
-                            title="Date/heure réelle",
-                            format="%d/%m/%Y %H:%M",
-                        ),
-                        alt.Tooltip("close:Q", title="Clôture", format=",.2f"),
-                    ],
-                )
-                .interactive()
-            )
-
-            st.altair_chart(chart, use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-            return  # ne pas exécuter les autres cas
-        #
-        # ---- FIN CAS 5 JOURS ----
-        #
-
-        #
-        # ---- CAS SPÉCIAL 1 MOIS : temps de marché compressé ----
-        #
-        if (
-            selected_period == "1 mois"
-            and (
-                (selected_class in ("Actions", "ETF", "Indices") and selected_index in MARKET_HOURS)
-                or (selected_class == "Forex")
-                or (
-                    selected_class == "Matières premières"
-                    and commodity_intraday_ok(symbol)   # 👈 seulement celles qui supportent l’intraday
-                )
-            )
-        ):
-            # Choix de la clé pour MARKET_HOURS / compression
-            if selected_class in ("Actions", "ETF", "Indices"):
-                market_key = selected_index
-            elif selected_class == "Forex":
-                market_key = "FOREX"
-            else:  # Matières premières
-                market_key = "COMMODITIES"
-
-            # Intraday compressé 30 min
-            df_plot = build_compressed_intraday_df(df, market_key, freq="30min")
-
-            if df_plot.empty:
-                st.error("Impossible de générer le graphique compressé pour 1 mois.")
-                st.markdown("</div>", unsafe_allow_html=True)
-                return
-
-            # Sécurités : s'assurer qu'on a bien 'date' et 'bar_index'
-            if "date" not in df_plot.columns:
-                df_plot = df_plot.reset_index().rename(columns={"index": "date"})
-
-            if "bar_index" not in df_plot.columns:
-                df_plot = df_plot.reset_index(drop=True)
-                df_plot["bar_index"] = range(len(df_plot))
-
-            # bornes Y
-            y_min = float(df_plot["close"].min())
-            y_max = float(df_plot["close"].max())
-            padding = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
-
-            # --------- Ticks X : un tick par jour ---------
-            df_days = df_plot.assign(day=df_plot["date"].dt.normalize())
-
-            day_starts = (
-                df_days
-                .groupby("day")["bar_index"]
-                .min()
-                .reset_index()
-            )
-
-            tick_values = day_starts["bar_index"].astype(int).tolist()
-            tick_labels = day_starts["day"].dt.strftime("%d/%m").tolist()
-
-            # Si trop de jours -> sous-échantillonnage automatiquement
-            max_labels = 15
-            if len(tick_values) > max_labels:
-                step = max(1, len(tick_values) // max_labels)
-                tick_values = tick_values[::step]
-                tick_labels = tick_labels[::step]
-
-            # Construire x_axis
-            if tick_values:
-                js_mapping = (
-                    "{"
-                    + ",".join(f"{v}: '{lab}'" for v, lab in zip(tick_values, tick_labels))
-                    + "}"
-                )
-                x_axis = alt.Axis(
-                    values=tick_values,
-                    grid=False,
-                    labelExpr=f"{js_mapping}[datum.value]",
-                )
-            else:
-                x_axis = alt.Axis(grid=False)
-
-            x_encoding = alt.X(
-                "bar_index:Q",
-                title=None,
-                axis=x_axis,
-            )
-
-            y_encoding = alt.Y(
-                "close:Q",
-                title="Prix",
-                scale=alt.Scale(domain=[y_min - padding, y_max + padding]),
-                axis=alt.Axis(grid=True),
-            )
-
-            chart = (
-                alt.Chart(df_plot)
-                .mark_line()
-                .encode(
-                    x=x_encoding,
-                    y=y_encoding,
-                    tooltip=[
-                        alt.Tooltip("date:T", title="Date/heure réelle", format="%d/%m/%Y %H:%M",),
-                        alt.Tooltip("close:Q", title="Clôture", format=",.2f"),
-                    ],
-                )
-                .interactive()
-            )
-
-            st.altair_chart(chart, use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-            return
-        #
-        # ---- FIN CAS 1 MOIS ----
-        #
-
-        # ============================
-        # CAS GÉNÉRAL POUR TOUTES LES AUTRES PÉRIODES
-        # ============================
-
-        df_plot = df.reset_index().sort_values("date")
-
-        # bornes Y propres
-        y_min = float(df["close"].min())
-        y_max = float(df["close"].max())
-
-        if not pd.notna(y_min) or not pd.notna(y_max):
-            st.error("Impossible de déterminer les bornes du graphique (valeurs NaN).")
+        else:
+            st.error(f"Erreur lors du chargement : {e}")
             return
 
+    # --- Filter (heures de marché / week-ends / resampling intraday) ---
+    df = filter_market_hours_and_weekends(
+        df,
+        asset_class=selected_class,
+        equity_index=selected_index,
+        period_label=selected_period,
+        interval=interval,
+    )
+
+    # --- Spécifique 1 jour : ne garder que le DERNIER jour de cotation ---
+    if selected_period == "1 jour":
+        # On prend le dernier timestamp dispo → sa date (sans heure)
+        last_ts = df.index.max()
+        if pd.isna(last_ts):
+            st.error("Aucune donnée disponible pour la période 1 jour.")
+            return
+        last_day = last_ts.normalize()
+        df = df[df.index.normalize() == last_day]
+
+
+    # --- Spécifique 5 jours : ne garder que les 5 DERNIERS jours d'ouverture ---
+    if selected_period == "5 jours":
+        # normalise() enlève l'heure : on ne garde que la date
+        trading_days = sorted(df.index.normalize().unique())
+        if len(trading_days) > 5:
+            last_5_days = trading_days[-5:]
+            df = df[df.index.normalize().isin(last_5_days)]
+    
+    # --- Spécifique 1 mois : ne garder que ~22 DERNIERS jours d'ouverture ---
+    if selected_period == "1 mois" and selected_class != "Crypto":
+        trading_days = sorted(df.index.normalize().unique())
+        if len(trading_days) > 22:
+            last_days = trading_days[-22:]  # ≈ 1 mois de bourse
+            df = df[df.index.normalize().isin(last_days)]
+
+
+    # --- SNAPSHOT ACTIF / STATISTIQUES RAPIDES ---
+    # On a parfois des colonnes en MultiIndex (yfinance) -> on aplatit pour les calculs
+    df_stats = df.copy()
+    if isinstance(df_stats.columns, pd.MultiIndex):
+        df_stats.columns = df_stats.columns.get_level_values(0)
+
+    # Dernier point
+    last_ts = df_stats.index.max()
+    last_row = df_stats.loc[last_ts]
+
+    # Gestion robustes des colonnes
+    close_val = float(last_row.get("close", float("nan")))
+    open_val = float(last_row.get("open", float("nan")))
+    high_val = float(df_stats["high"].max()) if "high" in df_stats.columns else float("nan")
+    low_val  = float(df_stats["low"].min()) if "low" in df_stats.columns else float("nan")
+    vol_val  = float(last_row.get("volume", float("nan"))) if "volume" in df_stats.columns else float("nan")
+
+    # Variation par rapport à la clôture précédente (si possible)
+    if len(df_stats) >= 2 and "close" in df_stats.columns:
+        prev_close = float(df_stats["close"].iloc[-2])
+        pct_change = (close_val / prev_close - 1.0) * 100.0 if prev_close != 0 else float("nan")
+    else:
+        pct_change = float("nan")
+
+    st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
+    st.subheader("Résumé de l'actif")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric(
+            "Dernier prix",
+            f"{close_val:,.2f}" if pd.notna(close_val) else "N/A",
+            f"{pct_change:+.2f} %" if pd.notna(pct_change) else None,
+        )
+
+    with col2:
+        st.metric(
+            "Plus haut (période)",
+            f"{high_val:,.2f}" if pd.notna(high_val) else "N/A",
+        )
+
+    with col3:
+        st.metric(
+            "Plus bas (période)",
+            f"{low_val:,.2f}" if pd.notna(low_val) else "N/A",
+        )
+
+    # Ligne d’info complémentaire
+    st.caption(
+        f"Dernier point : {last_ts.strftime('%d/%m/%Y %H:%M')}  —  "
+        f"Volume : {vol_val:,.0f}" if pd.notna(vol_val) else f"Dernier point : {last_ts}"
+    )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+    # --- GRAPH ---
+    st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
+    st.subheader("Graphique")
+
+    #
+    # ---- CAS SPÉCIAL 5 JOURS : temps de marché compressé ----
+    #
+    if (
+        selected_period == "5 jours"
+        and selected_class in ("Actions", "ETF", "Indices")
+        and selected_index in MARKET_HOURS
+    ):
+        # Intraday compressé 15 min uniquement heures de marché
+        market_key = selected_index  # Actions ou ETF, on a mis "S&P 500" pour les ETF
+        df_plot = build_compressed_intraday_df(df, market_key, freq="15min")
+
+        if df_plot.empty:
+            st.error("Impossible de générer le graphique compressé pour 5 jours.")
+            st.markdown("</div>", unsafe_allow_html=True)
+            return
+
+        # Sécurités : s'assurer qu'on a bien 'date' et 'bar_index'
+        if "date" not in df_plot.columns:
+            df_plot = df_plot.reset_index().rename(columns={"index": "date"})
+
+        if "bar_index" not in df_plot.columns:
+            df_plot = df_plot.reset_index(drop=True)
+            df_plot["bar_index"] = range(len(df_plot))
+
+        # bornes Y
+        y_min = float(df_plot["close"].min())
+        y_max = float(df_plot["close"].max())
         padding = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
 
-        # --------- Axe X en fonction de la période (temps continu) ---------
-        if selected_period == "1 jour":
-            x_encoding = alt.X(
-                "date:T",
-                title="Heure",
-                axis=alt.Axis(
-                    format="%H:%M",
-                    labelAngle=0,
-                    tickCount=24,
-                ),
-            )
+        # --------- Ticks X : jours + 18h / 20h ---------
+        df_days = df_plot.assign(day=df_plot["date"].dt.normalize())
 
-        elif selected_period == "5 jours":
-            # Cas général pour 5 jours quand on n'est PAS passé par le cas spécial Actions
-            x_encoding = alt.X(
-                "date:T",
-                title="Date / heure",
-                axis=alt.Axis(
-                    format="%d/%m %Hh",
-                    labelAngle=45,
-                    tickCount=10,
-                ),
-            )
+        # 1) début de chaque jour -> label = jour du mois
+        day_starts = (
+            df_days
+            .groupby("day")["bar_index"]
+            .min()
+            .reset_index()
+        )
 
-        elif selected_period == "1 mois":
-            x_encoding = alt.X(
-                "date:T",
-                title="Date",
-                axis=alt.Axis(
-                    format="%d/%m",
-                    labelAngle=45,
-                    tickCount=15,
-                ),
-            )
+        tick_values: list[int] = []
+        tick_labels: list[str] = []
 
-        elif selected_period == "6 mois":
-            x_encoding = alt.X(
-                "date:T",
-                title="Date",
-                axis=alt.Axis(
-                    format="%b %d",
-                    labelAngle=0,
-                    tickCount=12,
-                ),
-            )
+        for _, row in day_starts.iterrows():
+            tick_values.append(int(row["bar_index"]))
+            tick_labels.append(str(row["day"].day))
 
-        elif selected_period in ("Année écoulée", "1 année"):
-            x_encoding = alt.X(
-                "date:T",
-                title="Mois",
-                axis=alt.Axis(
-                    format="%b",
-                    labelAngle=0,
-                    tickCount=12,
-                ),
-            )
 
-        elif selected_period == "5 années":
-            x_encoding = alt.X(
-                "date:T",
-                title="Année",
-                axis=alt.Axis(
-                    format="%Y",
-                    labelAngle=0,
-                    tickCount=6,
-                ),
-            )
+        # 2) pour chaque jour, barres à 18h et 20h si elles existent
+        time_marks = df_plot[
+            df_plot["date"].dt.hour.isin([18, 20])
+            & (df_plot["date"].dt.minute == 0)
+        ][["bar_index", "date"]].drop_duplicates(subset=["bar_index"])
 
-        else:  # "Tout l'historique"
-            x_encoding = alt.X(
-                "date:T",
-                title="Année",
-                axis=alt.Axis(
-                    format="%Y",
-                    labelAngle=0,
-                    tickCount=10,
-                ),
+        for _, row in time_marks.iterrows():
+            v = int(row["bar_index"])
+            lab = f"{row['date'].hour}h"
+            if v not in tick_values:
+                tick_values.append(v)
+                tick_labels.append(lab)
+
+        # On trie par position croissante
+        ticks_sorted = sorted(zip(tick_values, tick_labels), key=lambda x: x[0])
+        tick_values = [v for v, _ in ticks_sorted]
+        tick_labels = [lab for _, lab in ticks_sorted]
+
+        if tick_values:
+            js_mapping = (
+                "{"
+                + ",".join(f"{v}: '{lab}'" for v, lab in zip(tick_values, tick_labels))
+                + "}"
             )
-        
-        # Tooltip : date + heure pour les périodes intraday, date seule sinon
-        if selected_period in ("1 jour", "5 jours", "1 mois"):
-            date_tooltip = alt.Tooltip(
-                "date:T",
-                title="Date/heure",
-                format="%d/%m/%Y %H:%M",
+            x_axis = alt.Axis(
+                values=tick_values,
+                grid=False,
+                labelExpr=f"{js_mapping}[datum.value]",
             )
         else:
-            date_tooltip = alt.Tooltip(
-                "date:T",
-                title="Date",
-                format="%d/%m/%Y",
-            )
+            x_axis = alt.Axis(grid=False)
+
+        x_encoding = alt.X(
+            "bar_index:Q",
+            title=None,
+            axis=x_axis,
+        )
+
+        y_encoding = alt.Y(
+            "close:Q",
+            title="Prix",
+            scale=alt.Scale(domain=[y_min - padding, y_max + padding]),
+            axis=alt.Axis(grid=True),
+        )
 
         chart = (
             alt.Chart(df_plot)
             .mark_line()
             .encode(
                 x=x_encoding,
-                y=alt.Y(
-                    "close:Q",
-                    title="Prix",
-                    scale=alt.Scale(domain=[y_min - padding, y_max + padding]),
-                ),
+                y=y_encoding,
                 tooltip=[
-                    date_tooltip,
+                    alt.Tooltip(
+                        "date:T",
+                        title="Date/heure réelle",
+                        format="%d/%m/%Y %H:%M",
+                    ),
                     alt.Tooltip("close:Q", title="Clôture", format=",.2f"),
                 ],
             )
@@ -995,3 +765,260 @@ def render():
 
         st.altair_chart(chart, use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
+
+        # --- SECTION STRATÉGIE & BACKTEST ---
+        render_strategy_section(df, selected_period)
+        return  # ne pas exécuter les autres cas
+    #
+    # ---- FIN CAS 5 JOURS ----
+    #
+
+    #
+    # ---- CAS SPÉCIAL 1 MOIS : temps de marché compressé ----
+    #
+    if (
+        selected_period == "1 mois"
+        and (
+            (selected_class in ("Actions", "ETF", "Indices") and selected_index in MARKET_HOURS)
+            or (selected_class == "Forex")
+            or (
+                selected_class == "Matières premières"
+                and commodity_intraday_ok(symbol)   # 👈 seulement celles qui supportent l’intraday
+            )
+        )
+    ):
+        # Choix de la clé pour MARKET_HOURS / compression
+        if selected_class in ("Actions", "ETF", "Indices"):
+            market_key = selected_index
+        elif selected_class == "Forex":
+            market_key = "FOREX"
+        else:  # Matières premières
+            market_key = "COMMODITIES"
+
+        # Intraday compressé 30 min
+        df_plot = build_compressed_intraday_df(df, market_key, freq="30min")
+
+        if df_plot.empty:
+            st.error("Impossible de générer le graphique compressé pour 1 mois.")
+            st.markdown("</div>", unsafe_allow_html=True)
+            return
+
+        # Sécurités : s'assurer qu'on a bien 'date' et 'bar_index'
+        if "date" not in df_plot.columns:
+            df_plot = df_plot.reset_index().rename(columns={"index": "date"})
+
+        if "bar_index" not in df_plot.columns:
+            df_plot = df_plot.reset_index(drop=True)
+            df_plot["bar_index"] = range(len(df_plot))
+
+        # bornes Y
+        y_min = float(df_plot["close"].min())
+        y_max = float(df_plot["close"].max())
+        padding = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
+
+        # --------- Ticks X : un tick par jour ---------
+        df_days = df_plot.assign(day=df_plot["date"].dt.normalize())
+
+        day_starts = (
+            df_days
+            .groupby("day")["bar_index"]
+            .min()
+            .reset_index()
+        )
+
+        tick_values = day_starts["bar_index"].astype(int).tolist()
+        tick_labels = day_starts["day"].dt.strftime("%d/%m").tolist()
+
+        # Si trop de jours -> sous-échantillonnage automatiquement
+        max_labels = 15
+        if len(tick_values) > max_labels:
+            step = max(1, len(tick_values) // max_labels)
+            tick_values = tick_values[::step]
+            tick_labels = tick_labels[::step]
+
+        # Construire x_axis
+        if tick_values:
+            js_mapping = (
+                "{"
+                + ",".join(f"{v}: '{lab}'" for v, lab in zip(tick_values, tick_labels))
+                + "}"
+            )
+            x_axis = alt.Axis(
+                values=tick_values,
+                grid=False,
+                labelExpr=f"{js_mapping}[datum.value]",
+            )
+        else:
+            x_axis = alt.Axis(grid=False)
+
+        x_encoding = alt.X(
+            "bar_index:Q",
+            title=None,
+            axis=x_axis,
+        )
+
+        y_encoding = alt.Y(
+            "close:Q",
+            title="Prix",
+            scale=alt.Scale(domain=[y_min - padding, y_max + padding]),
+            axis=alt.Axis(grid=True),
+        )
+
+        chart = (
+            alt.Chart(df_plot)
+            .mark_line()
+            .encode(
+                x=x_encoding,
+                y=y_encoding,
+                tooltip=[
+                    alt.Tooltip("date:T", title="Date/heure réelle", format="%d/%m/%Y %H:%M",),
+                    alt.Tooltip("close:Q", title="Clôture", format=",.2f"),
+                ],
+            )
+            .interactive()
+        )
+
+        st.altair_chart(chart, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # --- SECTION STRATÉGIE & BACKTEST ---
+        render_strategy_section(df, selected_period)
+        return
+
+    #
+    # ---- FIN CAS 1 MOIS ----
+    #
+
+    # ============================
+    # CAS GÉNÉRAL POUR TOUTES LES AUTRES PÉRIODES
+    # ============================
+
+    df_plot = df.reset_index().sort_values("date")
+
+    # bornes Y propres
+    y_min = float(df["close"].min())
+    y_max = float(df["close"].max())
+
+    if not pd.notna(y_min) or not pd.notna(y_max):
+        st.error("Impossible de déterminer les bornes du graphique (valeurs NaN).")
+        return
+
+    padding = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
+
+    # --------- Axe X en fonction de la période (temps continu) ---------
+    if selected_period == "1 jour":
+        x_encoding = alt.X(
+            "date:T",
+            title="Heure",
+            axis=alt.Axis(
+                format="%H:%M",
+                labelAngle=0,
+                tickCount=24,
+            ),
+        )
+
+    elif selected_period == "5 jours":
+        # Cas général pour 5 jours quand on n'est PAS passé par le cas spécial Actions
+        x_encoding = alt.X(
+            "date:T",
+            title="Date / heure",
+            axis=alt.Axis(
+                format="%d/%m %Hh",
+                labelAngle=45,
+                tickCount=10,
+            ),
+        )
+
+    elif selected_period == "1 mois":
+        x_encoding = alt.X(
+            "date:T",
+            title="Date",
+            axis=alt.Axis(
+                format="%d/%m",
+                labelAngle=45,
+                tickCount=15,
+            ),
+        )
+
+    elif selected_period == "6 mois":
+        x_encoding = alt.X(
+            "date:T",
+            title="Date",
+            axis=alt.Axis(
+                format="%b %d",
+                labelAngle=0,
+                tickCount=12,
+            ),
+        )
+
+    elif selected_period in ("Année écoulée", "1 année"):
+        x_encoding = alt.X(
+            "date:T",
+            title="Mois",
+            axis=alt.Axis(
+                format="%b",
+                labelAngle=0,
+                tickCount=12,
+            ),
+        )
+
+    elif selected_period == "5 années":
+        x_encoding = alt.X(
+            "date:T",
+            title="Année",
+            axis=alt.Axis(
+                format="%Y",
+                labelAngle=0,
+                tickCount=6,
+            ),
+        )
+
+    else:  # "Tout l'historique"
+        x_encoding = alt.X(
+            "date:T",
+            title="Année",
+            axis=alt.Axis(
+                format="%Y",
+                labelAngle=0,
+                tickCount=10,
+            ),
+        )
+    
+    # Tooltip : date + heure pour les périodes intraday, date seule sinon
+    if selected_period in ("1 jour", "5 jours", "1 mois"):
+        date_tooltip = alt.Tooltip(
+            "date:T",
+            title="Date/heure",
+            format="%d/%m/%Y %H:%M",
+        )
+    else:
+        date_tooltip = alt.Tooltip(
+            "date:T",
+            title="Date",
+            format="%d/%m/%Y",
+        )
+
+    chart = (
+        alt.Chart(df_plot)
+        .mark_line()
+        .encode(
+            x=x_encoding,
+            y=alt.Y(
+                "close:Q",
+                title="Prix",
+                scale=alt.Scale(domain=[y_min - padding, y_max + padding]),
+            ),
+            tooltip=[
+                date_tooltip,
+                alt.Tooltip("close:Q", title="Clôture", format=",.2f"),
+            ],
+        )
+        .interactive()
+    )
+
+    st.altair_chart(chart, use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # --- SECTION STRATÉGIE & BACKTEST ---
+    render_strategy_section(df, selected_period)
+
