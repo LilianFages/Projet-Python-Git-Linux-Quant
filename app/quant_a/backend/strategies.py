@@ -7,21 +7,78 @@ class StrategyResult:
     position: pd.Series      # 1 = long, 0 = hors marché
     benchmark: pd.Series     # simple buy & hold pour comparaison éventuelle
 
+def _get_close_series(df: pd.DataFrame) -> pd.Series:
+    """
+    Retourne une série 1D de prix de clôture à partir d'un DataFrame
+    qui peut avoir des colonnes simples ou un MultiIndex (yfinance).
+
+    - Si MultiIndex : on cherche toute colonne dont AU MOINS un niveau
+      contient 'close' ou 'adj close' (insensible à la casse), puis on
+      prend la première trouvée.
+    - Sinon : on cherche 'close' ou 'adj close' dans les noms de colonnes.
+    """
+    # --- Cas colonnes MultiIndex ---
+    if isinstance(df.columns, pd.MultiIndex):
+        candidate_cols = []
+
+        for col in df.columns:
+            # col est un tuple de niveaux
+            levels = [str(level).lower() for level in col]
+            if any(
+                lvl in ("close", "adj close", "adj_close", "adjclose")
+                for lvl in levels
+            ):
+                candidate_cols.append(col)
+
+        if not candidate_cols:
+            raise ValueError(
+                "Impossible de trouver une colonne de clôture ('close' ou 'adj close') "
+                "dans les colonnes MultiIndex."
+            )
+
+        # On prend la première colonne candidate
+        chosen = candidate_cols[0]
+        close_series = df[chosen]
+
+        # Si jamais c'est encore un DataFrame (plusieurs colonnes), on prend la première
+        if isinstance(close_series, pd.DataFrame):
+            close_series = close_series.iloc[:, 0]
+
+        return close_series.astype(float)
+
+    # --- Cas colonnes simples ---
+    cols_lower = {str(c).lower(): c for c in df.columns}
+
+    col_name = None
+    for key in ("close", "adj close", "adj_close", "adjclose"):
+        if key in cols_lower:
+            col_name = cols_lower[key]
+            break
+
+    if col_name is None:
+        raise ValueError(
+            "Le DataFrame doit contenir une colonne 'close' ou 'adj close'."
+        )
+
+    close = df[col_name]
+    if isinstance(close, pd.DataFrame):
+        close = close.iloc[:, 0]
+
+    return close.astype(float)
+
 
 def run_buy_and_hold(df: pd.DataFrame, initial_cash: float = 10_000) -> StrategyResult:
     """
     Stratégie buy & hold simple : on achète 100% du capital au début,
     on garde jusqu'à la fin. df doit contenir une colonne 'close'.
     """
-    if "close" not in df.columns:
-        raise ValueError("Le DataFrame doit contenir une colonne 'close'.")
+    prices = _get_close_series(df)
 
-    prices = df["close"].astype(float)
     # nombre de parts achetées au début
     shares = initial_cash / prices.iloc[0]
     equity = shares * prices
 
-    position = pd.Series(1.0, index=df.index)  # toujours investi
+    position = pd.Series(1.0, index=prices.index)  # toujours investi
     benchmark = equity.copy()  # ici benchmark = même chose
 
     return StrategyResult(
@@ -29,6 +86,7 @@ def run_buy_and_hold(df: pd.DataFrame, initial_cash: float = 10_000) -> Strategy
         position=position,
         benchmark=benchmark,
     )
+
 
 
 def run_sma_crossover(
@@ -42,10 +100,11 @@ def run_sma_crossover(
     - long quand SMA courte > SMA longue
     - cash sinon.
     """
+    prices = _get_close_series(df)
+
     if "close" not in df.columns:
         raise ValueError("Le DataFrame doit contenir une colonne 'close'.")
 
-    prices = df["close"].astype(float)
     sma_short = prices.rolling(short_window).mean()
     sma_long = prices.rolling(long_window).mean()
 
@@ -103,7 +162,7 @@ def run_rsi_strategy(
     if "close" not in df.columns:
         raise ValueError("Le DataFrame doit contenir une colonne 'close'.")
 
-    prices = df["close"].astype(float)
+    prices = _get_close_series(df)
     rsi = _compute_rsi(prices, window=window)
 
     # Signal brut : -1, 0, 1 (mais on ne prend que long/cash ici)
@@ -143,7 +202,7 @@ def run_momentum_strategy(
     if "close" not in df.columns:
         raise ValueError("Le DataFrame doit contenir une colonne 'close'.")
 
-    prices = df["close"].astype(float)
+    prices = _get_close_series(df)
 
     # Momentum = performance sur la fenêtre passée
     past_return = prices.pct_change(lookback)
