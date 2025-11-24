@@ -90,6 +90,205 @@ def get_period_dates_and_interval(period_label: str):
     return start, end, interval
 
 # ============================================================
+#  UI SUB-COMPONENTS
+# ============================================================
+
+def render_asset_summary(df: pd.DataFrame) -> None:
+    """
+    Affiche la carte 'Résumé de l'actif' (metrics + dernier point).
+    """
+    if df is None or df.empty:
+        return
+
+    df_stats = df.copy()
+    if isinstance(df_stats.columns, pd.MultiIndex):
+        df_stats.columns = df_stats.columns.get_level_values(0)
+
+    # Dernier point
+    last_ts = df_stats.index.max()
+    last_row = df_stats.loc[last_ts]
+
+    # Gestion robuste des colonnes
+    close_val = float(last_row.get("close", float("nan")))
+    open_val = float(last_row.get("open", float("nan")))
+    high_val = float(df_stats["high"].max()) if "high" in df_stats.columns else float("nan")
+    low_val  = float(df_stats["low"].min()) if "low" in df_stats.columns else float("nan")
+    vol_val  = float(last_row.get("volume", float("nan"))) if "volume" in df_stats.columns else float("nan")
+
+    # Variation sur TOUTE la période (premier close -> dernier close)
+    if len(df_stats) >= 1 and "close" in df_stats.columns:
+        first_close = float(df_stats["close"].iloc[0])
+        pct_change = (close_val / first_close - 1.0) * 100.0 if first_close != 0 else float("nan")
+    else:
+        pct_change = float("nan")
+
+    st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
+    st.subheader("Résumé de l'actif")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric(
+            "Dernier prix",
+            f"{close_val:,.2f}" if pd.notna(close_val) else "N/A",
+            f"{pct_change:+.2f} %" if pd.notna(pct_change) else None,
+        )
+
+    with col2:
+        st.metric(
+            "Plus haut (période)",
+            f"{high_val:,.2f}" if pd.notna(high_val) else "N/A",
+        )
+
+    with col3:
+        st.metric(
+            "Plus bas (période)",
+            f"{low_val:,.2f}" if pd.notna(low_val) else "N/A",
+        )
+
+    st.caption(
+        f"Dernier point : {last_ts.strftime('%d/%m/%Y %H:%M')}  —  "
+        f"Volume : {vol_val:,.0f}" if pd.notna(vol_val) else f"Dernier point : {last_ts}"
+    )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> None:
+    """
+    Affiche la carte 'Stratégie & Backtest' :
+      - choix de la stratégie
+      - paramètres
+      - exécution de run_strategy()
+      - affichage du graphique de comparaison
+    """
+    if df is None or df.empty:
+        return
+
+    st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
+    st.subheader("Stratégie & Backtest — Performance relative")
+
+    # 1) Choix de la stratégie
+    strategy_name = st.selectbox(
+        "Choisir une stratégie",
+        ["Buy & Hold", "SMA Crossover", "RSI Strategy", "Momentum"],
+    )
+
+    # 2) Paramètres en fonction de la stratégie
+    if strategy_name == "Buy & Hold":
+        initial_cash = st.number_input(
+            "Capital initial",
+            min_value=1000,
+            value=10_000,
+            step=1000,
+        )
+        strategy_params = {
+            "type": "buy_hold",
+            "initial_cash": initial_cash,
+        }
+
+    elif strategy_name == "SMA Crossover":
+        sma_short = st.number_input(
+            "SMA courte",
+            min_value=5,
+            value=20,
+            step=1,
+        )
+        sma_long = st.number_input(
+            "SMA longue",
+            min_value=10,
+            value=50,
+            step=1,
+        )
+        initial_cash = st.number_input(
+            "Capital initial",
+            min_value=1000,
+            value=10_000,
+            step=1000,
+            key="cash_sma",
+        )
+        strategy_params = {
+            "type": "sma_crossover",
+            "short_window": sma_short,
+            "long_window": sma_long,
+            "initial_cash": initial_cash,
+        }
+
+    elif strategy_name == "RSI Strategy":
+        rsi_window = st.number_input(
+            "Fenêtre RSI",
+            min_value=5,
+            value=14,
+            step=1,
+        )
+        rsi_oversold = st.number_input(
+            "Seuil survente",
+            min_value=0,
+            max_value=100,
+            value=30,
+            step=1,
+        )
+        rsi_overbought = st.number_input(
+            "Seuil surachat",
+            min_value=0,
+            max_value=100,
+            value=70,
+            step=1,
+        )
+        initial_cash = st.number_input(
+            "Capital initial",
+            min_value=1000,
+            value=10_000,
+            step=1000,
+            key="cash_rsi",
+        )
+        strategy_params = {
+            "type": "rsi",
+            "window": rsi_window,
+            "oversold": rsi_oversold,
+            "overbought": rsi_overbought,
+            "initial_cash": initial_cash,
+        }
+
+    else:  # Momentum
+        mom_window = st.number_input(
+            "Fenêtre momentum (jours)",
+            min_value=2,
+            value=10,
+            step=1,
+        )
+        initial_cash = st.number_input(
+            "Capital initial",
+            min_value=1000,
+            value=10_000,
+            step=1000,
+            key="cash_mom",
+        )
+        strategy_params = {
+            "type": "momentum",
+            "lookback": mom_window,
+            "initial_cash": initial_cash,
+        }
+
+    # 3) Exécution du backtest
+    try:
+        strategy_result = run_strategy(df, strategy_params)
+    except Exception as e:
+        st.warning(f"Impossible d'exécuter la stratégie : {e}")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    # 4) Graphique de comparaison (prix vs stratégie normalisés)
+    strategy_chart = make_strategy_comparison_chart(
+        df=df,
+        strategy_result=strategy_result,
+        selected_period=selected_period,
+    )
+
+    st.altair_chart(strategy_chart, use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ============================================================
 #  RENDER
 # ============================================================
 
@@ -223,63 +422,10 @@ def render():
 
 
     # --- SNAPSHOT ACTIF / STATISTIQUES RAPIDES ---
-    # On a parfois des colonnes en MultiIndex (yfinance) -> on aplatit pour les calculs
-    df_stats = df.copy()
-    if isinstance(df_stats.columns, pd.MultiIndex):
-        df_stats.columns = df_stats.columns.get_level_values(0)
-
-    # Dernier point
-    last_ts = df_stats.index.max()
-    last_row = df_stats.loc[last_ts]
-
-    # Gestion robustes des colonnes
-    close_val = float(last_row.get("close", float("nan")))
-    open_val = float(last_row.get("open", float("nan")))
-    high_val = float(df_stats["high"].max()) if "high" in df_stats.columns else float("nan")
-    low_val  = float(df_stats["low"].min()) if "low" in df_stats.columns else float("nan")
-    vol_val  = float(last_row.get("volume", float("nan"))) if "volume" in df_stats.columns else float("nan")
-
-    # Variation par rapport à la clôture précédente (si possible)
-    if len(df_stats) >= 2 and "close" in df_stats.columns:
-        prev_close = float(df_stats["close"].iloc[-2])
-        pct_change = (close_val / prev_close - 1.0) * 100.0 if prev_close != 0 else float("nan")
-    else:
-        pct_change = float("nan")
-
-    st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
-    st.subheader("Résumé de l'actif")
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric(
-            "Dernier prix",
-            f"{close_val:,.2f}" if pd.notna(close_val) else "N/A",
-            f"{pct_change:+.2f} %" if pd.notna(pct_change) else None,
-        )
-
-    with col2:
-        st.metric(
-            "Plus haut (période)",
-            f"{high_val:,.2f}" if pd.notna(high_val) else "N/A",
-        )
-
-    with col3:
-        st.metric(
-            "Plus bas (période)",
-            f"{low_val:,.2f}" if pd.notna(low_val) else "N/A",
-        )
-
-    # Ligne d’info complémentaire
-    st.caption(
-        f"Dernier point : {last_ts.strftime('%d/%m/%Y %H:%M')}  —  "
-        f"Volume : {vol_val:,.0f}" if pd.notna(vol_val) else f"Dernier point : {last_ts}"
-    )
-
-    st.markdown("</div>", unsafe_allow_html=True)
+    render_asset_summary(df)
 
 
-    # --- GRAPH ---
+    # --- GRAPH PRIX ---
     st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
     st.subheader("Graphique")
 
@@ -301,128 +447,8 @@ def render():
 
 
     # --- SECTION STRATÉGIE & BACKTEST ---
-    st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
-    st.subheader("Stratégie & Backtest — Performance relative")
+    render_strategy_backtest_section(df, selected_period)
 
-    # 1) Choix de la stratégie
-    strategy_name = st.selectbox(
-        "Choisir une stratégie",
-        ["Buy & Hold", "SMA Crossover", "RSI Strategy", "Momentum"],
-    )
-
-    # 2) Paramètres en fonction de la stratégie
-    if strategy_name == "Buy & Hold":
-        initial_cash = st.number_input(
-            "Capital initial",
-            min_value=1000,
-            value=10_000,
-            step=1000,
-        )
-        strategy_params = {
-            "type": "buy_hold",
-            "initial_cash": initial_cash,
-        }
-
-    elif strategy_name == "SMA Crossover":
-        sma_short = st.number_input(
-            "SMA courte",
-            min_value=5,
-            value=20,
-            step=1,
-        )
-        sma_long = st.number_input(
-            "SMA longue",
-            min_value=10,
-            value=50,
-            step=1,
-        )
-        initial_cash = st.number_input(
-            "Capital initial",
-            min_value=1000,
-            value=10_000,
-            step=1000,
-            key="cash_sma",
-        )
-        strategy_params = {
-            "type": "sma_crossover",
-            "short_window": sma_short,
-            "long_window": sma_long,
-            "initial_cash": initial_cash,
-        }
-
-    elif strategy_name == "RSI Strategy":
-        rsi_window = st.number_input(
-            "Fenêtre RSI",
-            min_value=5,
-            value=14,
-            step=1,
-        )
-        rsi_oversold = st.number_input(
-            "Seuil survente",
-            min_value=0,
-            max_value=100,
-            value=30,
-            step=1,
-        )
-        rsi_overbought = st.number_input(
-            "Seuil surachat",
-            min_value=0,
-            max_value=100,
-            value=70,
-            step=1,
-        )
-        initial_cash = st.number_input(
-            "Capital initial",
-            min_value=1000,
-            value=10_000,
-            step=1000,
-            key="cash_rsi",
-        )
-        strategy_params = {
-            "type": "rsi",
-            "window": rsi_window,
-            "oversold": rsi_oversold,
-            "overbought": rsi_overbought,
-            "initial_cash": initial_cash,
-        }
-
-    else:  # Momentum
-        mom_window = st.number_input(
-            "Fenêtre momentum (jours)",
-            min_value=2,
-            value=10,
-            step=1,
-        )
-        initial_cash = st.number_input(
-            "Capital initial",
-            min_value=1000,
-            value=10_000,
-            step=1000,
-            key="cash_mom",
-        )
-        strategy_params = {
-            "type": "momentum",
-            "lookback": mom_window,
-            "initial_cash": initial_cash,
-        }
-
-    # 3) Exécution du backtest
-    try:
-        strategy_result = run_strategy(df, strategy_params)
-    except Exception as e:
-        st.warning(f"Impossible d'exécuter la stratégie : {e}")
-        st.markdown("</div>", unsafe_allow_html=True)
-        return
-
-    # 4) Graphique de comparaison (prix vs stratégie normalisés)
-    strategy_chart = make_strategy_comparison_chart(
-        df=df,
-        strategy_result=strategy_result,
-        selected_period=selected_period,
-    )
-
-    st.altair_chart(strategy_chart, use_container_width=True)
-    st.markdown("</div>", unsafe_allow_html=True)
 
 
 
