@@ -4,7 +4,7 @@ import streamlit as st
 from datetime import datetime, timedelta
 import pandas as pd
 
-from app.quant_a.backend.strategies import run_strategy
+from app.quant_a.backend.strategies import run_strategy, StrategyResult
 from app.quant_a.frontend.charts import make_strategy_comparison_chart
 from app.common.config import (
     ASSET_CLASSES,
@@ -24,6 +24,7 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
     Affiche la carte 'Stratégie & Backtest' :
       - choix de la stratégie
       - paramètres
+      - bouton d'optimisation automatique
       - exécution de run_strategy()
       - affichage du graphique de comparaison
     """
@@ -39,7 +40,13 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
         ["Buy & Hold", "SMA Crossover", "RSI Strategy", "Momentum"],
     )
 
-    # 2) Paramètres en fonction de la stratégie
+    # On gardera ce dict pour lancer le backtest
+    strategy_params: dict
+
+    # Pour afficher éventuellement le résultat de l'optimisation
+    best_info_msg = None
+
+    # 2) Paramètres + bouton d’optimisation par stratégie
     if strategy_name == "Buy & Hold":
         initial_cash = st.number_input(
             "Capital initial",
@@ -51,6 +58,9 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
             "type": "buy_hold",
             "initial_cash": initial_cash,
         }
+
+        # Pas d'optimisation pour buy & hold (paramètre trivial)
+        optimize_clicked = False
 
     elif strategy_name == "SMA Crossover":
         sma_short = st.number_input(
@@ -78,6 +88,21 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
             "long_window": sma_long,
             "initial_cash": initial_cash,
         }
+
+        optimize_clicked = st.button(
+            "Optimiser automatiquement les paramètres (SMA)",
+            key="opt_sma",
+        )
+        if optimize_clicked:
+            with st.spinner("Recherche des meilleurs SMA sur la période..."):
+                best_params, best_score = _optimize_sma(df, initial_cash=initial_cash)
+            strategy_params = best_params  # on remplace par les meilleurs
+            best_info_msg = (
+                f"Paramètres optimaux trouvés : "
+                f"SMA courte = {best_params['short_window']}, "
+                f"SMA longue = {best_params['long_window']}  "
+                f"— Performance ≈ {best_score*100:.2f} %"
+            )
 
     elif strategy_name == "RSI Strategy":
         rsi_window = st.number_input(
@@ -115,6 +140,22 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
             "initial_cash": initial_cash,
         }
 
+        optimize_clicked = st.button(
+            "Optimiser automatiquement les paramètres (RSI)",
+            key="opt_rsi",
+        )
+        if optimize_clicked:
+            with st.spinner("Recherche des meilleurs paramètres RSI..."):
+                best_params, best_score = _optimize_rsi(df, initial_cash=initial_cash)
+            strategy_params = best_params
+            best_info_msg = (
+                f"Paramètres optimaux trouvés : "
+                f"fenêtre = {best_params['window']}, "
+                f"survente = {best_params['oversold']}, "
+                f"surachat = {best_params['overbought']}  "
+                f"— Performance ≈ {best_score*100:.2f} %"
+            )
+
     else:  # Momentum
         mom_window = st.number_input(
             "Fenêtre momentum (jours)",
@@ -135,7 +176,25 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
             "initial_cash": initial_cash,
         }
 
-    # 3) Exécution du backtest
+        optimize_clicked = st.button(
+            "Optimiser automatiquement les paramètres (Momentum)",
+            key="opt_mom",
+        )
+        if optimize_clicked:
+            with st.spinner("Recherche des meilleurs paramètres momentum..."):
+                best_params, best_score = _optimize_momentum(df, initial_cash=initial_cash)
+            strategy_params = best_params
+            best_info_msg = (
+                f"Paramètres optimaux trouvés : "
+                f"fenêtre = {best_params['lookback']} jours  "
+                f"— Performance ≈ {best_score*100:.2f} %"
+            )
+
+    # Petit message récap si optimisation effectuée
+    if best_info_msg is not None:
+        st.success(best_info_msg)
+
+    # 3) Exécution du backtest avec les paramètres (optimisés ou non)
     try:
         strategy_result = run_strategy(df, strategy_params)
     except Exception as e:
@@ -152,6 +211,95 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
 
     st.altair_chart(strategy_chart, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ============================================================
+#  OPTIMISATION DES PARAMÈTRES
+# ============================================================
+
+def _score_strategy(df: pd.DataFrame, params: dict) -> float:
+    """
+    Score simple : performance finale (equity_final / equity_initial - 1).
+    Plus c'est élevé, mieux c'est.
+    """
+    result: StrategyResult = run_strategy(df, params)
+    equity = result.equity_curve.astype(float)
+    if len(equity) < 2:
+        return -1e9  # gros score négatif si série trop courte
+    return float(equity.iloc[-1] / equity.iloc[0] - 1.0)
+
+
+def _optimize_sma(df: pd.DataFrame, initial_cash: float = 10_000) -> tuple[dict, float]:
+    """
+    Balayage brut de quelques combinaisons SMA courte / longue.
+    Retourne (meilleurs_params, meilleur_score_float).
+    """
+    best_params = None
+    best_score = -1e9
+
+    for short in range(5, 31, 5):              # 5,10,15,20,25,30
+        for long in range(short + 5, 101, 5):  # long > short
+            params = {
+                "type": "sma_crossover",
+                "short_window": short,
+                "long_window": long,
+                "initial_cash": initial_cash,
+            }
+            score = _score_strategy(df, params)
+            if score > best_score:
+                best_score = score
+                best_params = params
+
+    return best_params, best_score
+
+
+def _optimize_rsi(df: pd.DataFrame, initial_cash: float = 10_000) -> tuple[dict, float]:
+    """
+    Recherche brute sur fenêtre RSI + seuils survente/surachat.
+    """
+    best_params = None
+    best_score = -1e9
+
+    for window in range(7, 31, 3):             # 7,10,13,...,28
+        for oversold in range(20, 35, 5):      # 20,25,30
+            for overbought in range(65, 85, 5):  # 65,70,75,80
+                params = {
+                    "type": "rsi",
+                    "window": window,
+                    "oversold": oversold,
+                    "overbought": overbought,
+                    "initial_cash": initial_cash,
+                }
+                score = _score_strategy(df, params)
+                if score > best_score:
+                    best_score = score
+                    best_params = params
+
+    return best_params, best_score
+
+
+def _optimize_momentum(
+    df: pd.DataFrame,
+    initial_cash: float = 10_000,
+) -> tuple[dict, float]:
+    """
+    Optimisation du lookback momentum (retour final).
+    """
+    best_params = None
+    best_score = -1e9
+
+    for lookback in range(5, 61, 5):  # 5,10,...,60 jours
+        params = {
+            "type": "momentum",
+            "lookback": lookback,
+            "initial_cash": initial_cash,
+        }
+        score = _score_strategy(df, params)
+        if score > best_score:
+            best_score = score
+            best_params = params
+
+    return best_params, best_score
 
 
 def render():
