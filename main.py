@@ -1,23 +1,34 @@
 import streamlit as st
-
 from app.quant_a.frontend import ui as quant_a_ui
+from app.quant_a.frontend import strategy_ui as quant_a_strategy_ui
 from app.quant_b.frontend import ui as quant_b_ui
 
+st.set_page_config(
+    page_title="Quant Platform",
+    layout="wide",          # <-- important
+)
 
-def main():
-    st.set_page_config(page_title="Quant Platform", layout="wide")
+# Nouveau titre propre dans la sidebar
+st.sidebar.markdown(
+    "<span class='nav-title'>Navigation</span>",
+    unsafe_allow_html=True
+)
 
-    st.sidebar.title("Navigation")
-    page = st.sidebar.radio(
-        "Aller à :",
-        ["Quant A - Single Asset", "Quant B - Portfolio"]
-    )
-
-    if page.startswith("Quant A"):
-        quant_a_ui.render()
-    else:
-        quant_b_ui.render()
+page = st.sidebar.radio(
+    "",
+    [
+        "Quant A - Single Asset (Marché)",
+        "Quant A - Single Asset (Stratégies)",
+        "Quant B - Portfolio",
+    ],
+)
 
 
-if __name__ == "__main__":
-    main()
+if page == "Quant A - Single Asset (Marché)":
+    quant_a_ui.render()
+
+elif page == "Quant A - Single Asset (Stratégies)":
+    quant_a_strategy_ui.render()
+
+elif page == "Quant B - Portfolio":
+    quant_b_ui.render()

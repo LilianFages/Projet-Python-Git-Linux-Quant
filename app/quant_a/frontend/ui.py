@@ -2,11 +2,8 @@ import streamlit as st
 from datetime import datetime, timedelta, time as dtime
 import altair as alt
 import pandas as pd
-from app.quant_a.backend.strategies import run_strategy
-from app.quant_a.frontend.charts import (
-    make_strategy_comparison_chart,
-    make_price_chart,
-)
+from app.quant_a.frontend.charts import make_price_chart
+
 from app.common.config import (
     ASSET_CLASSES,
     DEFAULT_ASSET_CLASS,
@@ -34,24 +31,90 @@ def apply_quant_a_theme():
     st.markdown(
         """
         <style>
-        .main { padding-left: 3rem; padding-right: 3rem; padding-top: 2rem; }
-        .quant-title { font-size: 40px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color:#E5E5E5; }
-        .quant-subtitle { font-size: 14px; color: #9FA4B1; margin-bottom: 1rem; }
-
-        [data-testid="stSidebar"] { border-right: 1px solid #1F232B; }
-        div.stButton > button:first-child {
-            background-color:#2D8CFF; color:white; border-radius:6px;
-            border:1px solid #2D8CFF; padding:0.4rem 1.4rem; font-weight:600;
+        /* Enlever l’ancien texte "Aller à :" */
+        .sidebar .block-container h2 {
+        display: none;
         }
-        div.stButton > button:first-child:hover { background-color:#1C5FB8; }
+
+        /* Nouveau style pour la navigation */
+        [data-testid="stSidebar"] .nav-title {
+        font-size: 14px;
+        color: #9FA4B1;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 0.5rem;
+        margin-top: 1rem;
+        display: block;
+        }
+
+        /* Espacement entre les radios */
+        [data-testid="stSidebar"] .stRadio > div {
+        gap: 0.4rem;
+        }
+
+        /* Meilleur espacement général de la sidebar */
+        [data-testid="stSidebar"] .block-container {
+        padding-top: 1.5rem;
+        }
+
+        /* ====== Largeur de la zone centrale ====== */
+        /* Nouveau sélecteur Streamlit pour le conteneur principal */
+        .block-container {
+            padding-left: 2rem;
+            padding-right: 2rem;
+            padding-top: 2rem;
+            max-width: 100%;           /* plus de limite à ~1200px */
+        }
+
+        /* Compat ancien sélecteur (.main) si jamais */
+        .main {
+            padding-left: 2rem;
+            padding-right: 2rem;
+            padding-top: 2rem;
+        }
+
+        /* Sidebar un peu plus fine + bordure */
+        [data-testid="stSidebar"] {
+            border-right: 1px solid #1F232B;
+            width: 260px;
+        }
+
+        .quant-title {
+            font-size: 40px;
+            font-weight: 800;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color:#E5E5E5;
+        }
+        .quant-subtitle {
+            font-size: 14px;
+            color: #9FA4B1;
+            margin-bottom: 1rem;
+        }
+
+        div.stButton > button:first-child {
+            background-color:#2D8CFF;
+            color:white;
+            border-radius:6px;
+            border:1px solid #2D8CFF;
+            padding:0.4rem 1.4rem;
+            font-weight:600;
+        }
+        div.stButton > button:first-child:hover {
+            background-color:#1C5FB8;
+        }
         .quant-card {
-            background-color:#14161C; border-radius:8px; padding:1.2rem 1.5rem;
-            border:1px solid #1F232B; margin-bottom:1rem;
+            background-color:#14161C;
+            border-radius:8px;
+            padding:1.2rem 1.5rem;
+            border:1px solid #1F232B;
+            margin-bottom:1rem;
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
+
 
 
 # ============================================================
@@ -153,140 +216,6 @@ def render_asset_summary(df: pd.DataFrame) -> None:
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-
-def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> None:
-    """
-    Affiche la carte 'Stratégie & Backtest' :
-      - choix de la stratégie
-      - paramètres
-      - exécution de run_strategy()
-      - affichage du graphique de comparaison
-    """
-    if df is None or df.empty:
-        return
-
-    st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
-    st.subheader("Stratégie & Backtest — Performance relative")
-
-    # 1) Choix de la stratégie
-    strategy_name = st.selectbox(
-        "Choisir une stratégie",
-        ["Buy & Hold", "SMA Crossover", "RSI Strategy", "Momentum"],
-    )
-
-    # 2) Paramètres en fonction de la stratégie
-    if strategy_name == "Buy & Hold":
-        initial_cash = st.number_input(
-            "Capital initial",
-            min_value=1000,
-            value=10_000,
-            step=1000,
-        )
-        strategy_params = {
-            "type": "buy_hold",
-            "initial_cash": initial_cash,
-        }
-
-    elif strategy_name == "SMA Crossover":
-        sma_short = st.number_input(
-            "SMA courte",
-            min_value=5,
-            value=20,
-            step=1,
-        )
-        sma_long = st.number_input(
-            "SMA longue",
-            min_value=10,
-            value=50,
-            step=1,
-        )
-        initial_cash = st.number_input(
-            "Capital initial",
-            min_value=1000,
-            value=10_000,
-            step=1000,
-            key="cash_sma",
-        )
-        strategy_params = {
-            "type": "sma_crossover",
-            "short_window": sma_short,
-            "long_window": sma_long,
-            "initial_cash": initial_cash,
-        }
-
-    elif strategy_name == "RSI Strategy":
-        rsi_window = st.number_input(
-            "Fenêtre RSI",
-            min_value=5,
-            value=14,
-            step=1,
-        )
-        rsi_oversold = st.number_input(
-            "Seuil survente",
-            min_value=0,
-            max_value=100,
-            value=30,
-            step=1,
-        )
-        rsi_overbought = st.number_input(
-            "Seuil surachat",
-            min_value=0,
-            max_value=100,
-            value=70,
-            step=1,
-        )
-        initial_cash = st.number_input(
-            "Capital initial",
-            min_value=1000,
-            value=10_000,
-            step=1000,
-            key="cash_rsi",
-        )
-        strategy_params = {
-            "type": "rsi",
-            "window": rsi_window,
-            "oversold": rsi_oversold,
-            "overbought": rsi_overbought,
-            "initial_cash": initial_cash,
-        }
-
-    else:  # Momentum
-        mom_window = st.number_input(
-            "Fenêtre momentum (jours)",
-            min_value=2,
-            value=10,
-            step=1,
-        )
-        initial_cash = st.number_input(
-            "Capital initial",
-            min_value=1000,
-            value=10_000,
-            step=1000,
-            key="cash_mom",
-        )
-        strategy_params = {
-            "type": "momentum",
-            "lookback": mom_window,
-            "initial_cash": initial_cash,
-        }
-
-    # 3) Exécution du backtest
-    try:
-        strategy_result = run_strategy(df, strategy_params)
-    except Exception as e:
-        st.warning(f"Impossible d'exécuter la stratégie : {e}")
-        st.markdown("</div>", unsafe_allow_html=True)
-        return
-
-    # 4) Graphique de comparaison (prix vs stratégie normalisés)
-    strategy_chart = make_strategy_comparison_chart(
-        df=df,
-        strategy_result=strategy_result,
-        selected_period=selected_period,
-    )
-
-    st.altair_chart(strategy_chart, use_container_width=True)
-    st.markdown("</div>", unsafe_allow_html=True)
 
 # ============================================================
 #  RENDER
@@ -446,8 +375,6 @@ def render():
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-    # --- SECTION STRATÉGIE & BACKTEST ---
-    render_strategy_backtest_section(df, selected_period)
 
 
 
