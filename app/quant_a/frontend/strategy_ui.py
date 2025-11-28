@@ -38,7 +38,7 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
     st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
     st.subheader("Stratégie & Backtest — Performance relative")
 
-    # 1) Choix de la stratégie
+    # 1) Choix de la stratégie et de la metrics sur laquelle opti
     strategy_name = st.selectbox(
         "Choisir une stratégie",
         ["Buy & Hold", "SMA Crossover", "RSI Strategy", "Momentum"],
@@ -46,6 +46,22 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
 
     strategy_params: dict
     best_info_msg = None
+
+    # Sélecteur d'objectif d'optimisation
+    col_opt1, col_opt2 = st.columns([3, 1])
+    with col_opt2:
+        target_metric = st.selectbox(
+            "Objectif d'optimisation",
+            ["Total Return", "Sharpe Ratio", "Max Drawdown", "Win Rate"],
+            help="Quelle métrique l'algorithme doit-il essayer de maximiser ?"
+        )
+
+    # Helper pour formater le résultat selon la métrique choisie
+    def format_score(score, metric):
+        if metric == "Sharpe Ratio":
+            return f"{score:.2f}"
+        else:
+            return f"{score*100:.2f} %"
 
     # 2) Paramètres + bouton d’optimisation par stratégie
     if strategy_name == "Buy & Hold":
@@ -74,12 +90,15 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
 
         optimize_clicked = st.button("Optimiser automatiquement les paramètres (SMA)", key="opt_sma")
         if optimize_clicked:
-            with st.spinner("Recherche des meilleurs SMA sur la période..."):
-                best_params, best_score = _optimize_sma(df, initial_cash=initial_cash)
+            with st.spinner(f"Recherche des meilleurs SMA (Cible : {target_metric})..."):
+                best_params, best_score = _optimize_sma(df, initial_cash=initial_cash, target_metric=target_metric)
+            
             strategy_params = best_params
+            perf_str = format_score(best_score, target_metric)
+            
             best_info_msg = (
-                f"✅ Paramètres optimaux : SMA {best_params['short_window']} / {best_params['long_window']} "
-                f"— Perf: {best_score*100:.2f} %"
+                f" Paramètres optimaux : SMA {best_params['short_window']} / {best_params['long_window']} "
+                f"— {target_metric}: {perf_str}"
             )
 
     elif strategy_name == "RSI Strategy":
@@ -103,12 +122,15 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
 
         optimize_clicked = st.button("Optimiser automatiquement les paramètres (RSI)", key="opt_rsi")
         if optimize_clicked:
-            with st.spinner("Recherche des meilleurs paramètres RSI..."):
-                best_params, best_score = _optimize_rsi(df, initial_cash=initial_cash)
+            with st.spinner(f"Recherche RSI optimal (Cible : {target_metric})..."):
+                best_params, best_score = _optimize_rsi(df, initial_cash=initial_cash, target_metric=target_metric)
+            
             strategy_params = best_params
+            perf_str = format_score(best_score, target_metric)
+
             best_info_msg = (
-                f"✅ Paramètres optimaux : RSI {best_params['window']} ({best_params['oversold']}/{best_params['overbought']}) "
-                f"— Perf: {best_score*100:.2f} %"
+                f" Paramètres optimaux : RSI {best_params['window']} ({best_params['oversold']}/{best_params['overbought']}) "
+                f"— {target_metric}: {perf_str}"
             )
 
     else:  # Momentum
@@ -123,12 +145,15 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
 
         optimize_clicked = st.button("Optimiser automatiquement les paramètres (Momentum)", key="opt_mom")
         if optimize_clicked:
-            with st.spinner("Recherche du meilleur Momentum..."):
-                best_params, best_score = _optimize_momentum(df, initial_cash=initial_cash)
+            with st.spinner(f"Recherche Momentum optimal (Cible : {target_metric})..."):
+                best_params, best_score = _optimize_momentum(df, initial_cash=initial_cash, target_metric=target_metric)
+            
             strategy_params = best_params
+            perf_str = format_score(best_score, target_metric)
+
             best_info_msg = (
-                f"✅ Paramètres optimaux : Lookback {best_params['lookback']} jours "
-                f"— Perf: {best_score*100:.2f} %"
+                f" Paramètres optimaux : Lookback {best_params['lookback']} jours "
+                f"— {target_metric}: {perf_str}"
             )
 
     if best_info_msg:
@@ -152,7 +177,7 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
     st.altair_chart(strategy_chart, use_container_width=True)
 
     # ------------------------------------------------------------------
-    # 6) TABLEAU DE BORD : MÉTRIQUES CLÉS (NOUVEL AJOUT)
+    # 6) TABLEAU DE BORD : MÉTRIQUES CLÉS
     # ------------------------------------------------------------------
     st.markdown("---")
     st.subheader(" Analyse détaillée de la performance")
@@ -181,49 +206,102 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
 #  OPTIMISATION ENGINE
 # ============================================================
 
-def _score_strategy(df: pd.DataFrame, params: dict) -> float:
+def _score_strategy(df: pd.DataFrame, params: dict, target_metric: str = "Total Return") -> float:
+    """
+    Score la stratégie selon la métrique choisie.
+    """
+    # 1. On lance la stratégie
     result = run_strategy(df, params)
-    equity = result.equity_curve.astype(float)
-    if len(equity) < 2: return -1e9
-    return float(equity.iloc[-1] / equity.iloc[0] - 1.0)
+    
+    # Si pas assez de données, on rejette
+    if result.equity_curve.empty or len(result.equity_curve) < 10:
+        return -1e9
 
-def _optimize_sma(df: pd.DataFrame, initial_cash: float) -> tuple[dict, float]:
+    # 2. Si l'objectif est le rendement pur (rapide)
+    if target_metric == "Total Return":
+        return float(result.equity_curve.iloc[-1] / result.equity_curve.iloc[0] - 1.0)
+
+    # 3. Pour les autres objectifs, on calcule les métriques complètes
+    metrics = calculate_metrics(result.equity_curve, result.position)
+
+    if target_metric == "Sharpe Ratio":
+        return metrics.sharpe_ratio
+    
+    elif target_metric == "Max Drawdown":
+        # Le drawdown est négatif (ex: -0.20).
+        # On veut le MAXIMISER mathématiquement (car -0.10 > -0.50).
+        return metrics.max_drawdown
+        
+    elif target_metric == "Win Rate":
+        return metrics.win_rate
+
+    # Par défaut
+    return metrics.total_return
+
+def _optimize_sma(df: pd.DataFrame, initial_cash: float, target_metric: str) -> tuple[dict, float]:
     best_params, best_score = None, -1e9
-    # Recherche allégée pour rapidité
+    
+    # Grille de recherche
     for short in range(5, 55, 5):
         for long in range(short + 10, 201, 10):
-            params = {"type": "sma_crossover", "short_window": short, "long_window": long, "initial_cash": initial_cash}
-            score = _score_strategy(df, params)
+            params = {
+                "type": "sma_crossover", 
+                "short_window": short, 
+                "long_window": long, 
+                "initial_cash": initial_cash
+            }
+            # On passe la métrique cible
+            score = _score_strategy(df, params, target_metric)
+            
             if score > best_score:
                 best_score, best_params = score, params
+                
     return best_params, best_score
 
-def _optimize_rsi(df: pd.DataFrame, initial_cash: float) -> tuple[dict, float]:
+
+def _optimize_rsi(df: pd.DataFrame, initial_cash: float, target_metric: str) -> tuple[dict, float]:
     best_params, best_score = None, -1e9
+    
     for window in [7, 14, 21]:
         for oversold in [20, 25, 30, 35]:
             for overbought in [65, 70, 75, 80]:
-                params = {"type": "rsi", "window": window, "oversold": oversold, "overbought": overbought, "initial_cash": initial_cash}
-                score = _score_strategy(df, params)
+                params = {
+                    "type": "rsi", 
+                    "window": window, 
+                    "oversold": oversold, 
+                    "overbought": overbought, 
+                    "initial_cash": initial_cash
+                }
+                score = _score_strategy(df, params, target_metric)
+                
                 if score > best_score:
                     best_score, best_params = score, params
+                    
     return best_params, best_score
 
-def _optimize_momentum(df: pd.DataFrame, initial_cash: float) -> tuple[dict, float]:
+
+def _optimize_momentum(df: pd.DataFrame, initial_cash: float, target_metric: str) -> tuple[dict, float]:
     best_params, best_score = None, -1e9
+    
     for lookback in range(5, 120, 5):
-        params = {"type": "momentum", "lookback": lookback, "initial_cash": initial_cash}
-        score = _score_strategy(df, params)
+        params = {
+            "type": "momentum", 
+            "lookback": lookback, 
+            "initial_cash": initial_cash
+        }
+        score = _score_strategy(df, params, target_metric)
+        
         if score > best_score:
             best_score, best_params = score, params
-    return best_params, best_score
+            
+    return best_params, best_score  
 
 
 def render():
     apply_quant_a_theme()
     st.markdown("<div class='quant-title'>Quant A — Strategy Lab</div>", unsafe_allow_html=True)
     
-    # --- SIDEBAR ET DATA LOADER (Identique à ton code, condensé ici pour lisibilité) ---
+    # --- SIDEBAR ET DATA LOADER ---
     st.sidebar.subheader("Options (Quant A - Stratégies)")
     asset_classes = list(ASSET_CLASSES.keys())
     selected_class = st.sidebar.selectbox("Classe d'actifs", asset_classes, index=asset_classes.index(DEFAULT_ASSET_CLASS))
@@ -241,7 +319,7 @@ def render():
     if selected_class == "Actions": selected_index = idx
     elif selected_class == "ETF": selected_index = "S&P 500"
     elif selected_class == "Indices": selected_index = INDEX_MARKET_MAP.get(symbol, "S&P 500")
-    else: selected_index = None # Forex/Crypto/Commodities
+    else: selected_index = None
 
     st.markdown("### Sélection de la période de backtest")
     mode = st.radio("Méthode", ["Périodes fixes", "Sélection manuelle"], horizontal=True, label_visibility="collapsed")
