@@ -351,3 +351,92 @@ def make_strategy_comparison_chart(
     )
 
     return chart
+
+def make_strategy_value_chart(
+    df: pd.DataFrame,
+    strategy_result: StrategyResult,
+    selected_period: str,
+) -> alt.Chart:
+    """
+    Graphique en capital (montant du portefeuille) :
+      - Stratégie (equity_curve)
+      - Buy & Hold (benchmark)
+
+    Axe Y : valeur du portefeuille (même unité que le capital initial).
+    """
+
+    if df is None or df.empty or strategy_result is None:
+        return alt.Chart(pd.DataFrame({"date": [], "valeur": []})).mark_line()
+
+    df_plot = df.copy()
+    if isinstance(df_plot.columns, pd.MultiIndex):
+        df_plot.columns = df_plot.columns.get_level_values(0)
+
+    base_index = df_plot.index
+
+    equity = strategy_result.equity_curve
+    benchmark = strategy_result.benchmark
+
+    if equity is None or benchmark is None or len(equity) == 0 or len(benchmark) == 0:
+        return alt.Chart(pd.DataFrame({"date": [], "valeur": []})).mark_line()
+
+    # Alignement des séries
+    common_index = base_index.intersection(equity.index).intersection(benchmark.index)
+    if len(common_index) == 0:
+        return alt.Chart(pd.DataFrame({"date": [], "valeur": []})).mark_line()
+
+    equity = equity.loc[common_index].astype(float)
+    benchmark = benchmark.loc[common_index].astype(float)
+
+    plot_df = pd.DataFrame(
+        {
+            "date": common_index,
+            "Stratégie": equity.to_numpy().ravel(),
+            "Buy & Hold": benchmark.to_numpy().ravel(),
+        }
+    ).melt("date", var_name="Série", value_name="valeur")
+
+    # Axe X suivant la période (même logique que le chart normalisé)
+    if selected_period in ("1 jour", "5 jours", "1 mois"):
+        x_axis = alt.X(
+            "date:T",
+            title="Date / heure",
+            axis=alt.Axis(format="%d/%m %H:%M", labelAngle=45),
+        )
+        date_tooltip = alt.Tooltip(
+            "date:T",
+            title="Date/heure",
+            format="%d/%m/%Y %H:%M",
+        )
+    else:
+        x_axis = alt.X(
+            "date:T",
+            title="Date",
+            axis=alt.Axis(format="%d/%m/%Y", labelAngle=0),
+        )
+        date_tooltip = alt.Tooltip(
+            "date:T",
+            title="Date",
+            format="%d/%m/%Y",
+        )
+
+    chart = (
+        alt.Chart(plot_df)
+        .mark_line()
+        .encode(
+            x=x_axis,
+            y=alt.Y(
+                "valeur:Q",
+                title="Valeur du portefeuille",
+            ),
+            color=alt.Color("Série:N", title="Série"),
+            tooltip=[
+                date_tooltip,
+                alt.Tooltip("Série:N", title="Série"),
+                alt.Tooltip("valeur:Q", title="Valeur", format=",.2f"),
+            ],
+        )
+        .interactive()
+    )
+
+    return chart

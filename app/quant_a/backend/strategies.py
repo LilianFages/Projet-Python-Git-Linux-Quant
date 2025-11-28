@@ -1,92 +1,118 @@
 import pandas as pd
 from dataclasses import dataclass
+import numpy as np
+
+# ============================================================
+#  DATA STRUCTURE
+# ============================================================
 
 @dataclass
 class StrategyResult:
-    equity_curve: pd.Series  # valeur cumulée du portefeuille
-    position: pd.Series      # 1 = long, 0 = hors marché
-    benchmark: pd.Series     # simple buy & hold pour comparaison éventuelle
+    equity_curve: pd.Series   # valeur cumulée du portefeuille (stratégie)
+    position: pd.Series       # position effective (0 ou 1)
+    benchmark: pd.Series      # buy & hold pour comparaison
+
+
+# ============================================================
+#  HELPERS GÉNÉRIQUES
+# ============================================================
 
 def _get_close_series(df: pd.DataFrame) -> pd.Series:
     """
-    Retourne une série 1D de prix de clôture à partir d'un DataFrame
-    qui peut avoir des colonnes simples ou un MultiIndex (yfinance).
-
-    - Si MultiIndex : on cherche toute colonne dont AU MOINS un niveau
-      contient 'close' ou 'adj close' (insensible à la casse), puis on
-      prend la première trouvée.
-    - Sinon : on cherche 'close' ou 'adj close' dans les noms de colonnes.
+    Retourne une série 1D de prix de clôture garantie float64.
+    Gère MultiIndex et colonnes simples.
     """
+    # Copie pour éviter les warnings SettingWithCopy sur le DataFrame original
+    df = df.copy()
+
     # --- Cas colonnes MultiIndex ---
     if isinstance(df.columns, pd.MultiIndex):
         candidate_cols = []
-
         for col in df.columns:
-            # col est un tuple de niveaux
+            # On aplatit les niveaux pour chercher 'close'
             levels = [str(level).lower() for level in col]
-            if any(
-                lvl in ("close", "adj close", "adj_close", "adjclose")
-                for lvl in levels
-            ):
+            if any(lvl in ("close", "adj close", "adj_close", "adjclose") for lvl in levels):
                 candidate_cols.append(col)
 
         if not candidate_cols:
-            raise ValueError(
-                "Impossible de trouver une colonne de clôture ('close' ou 'adj close') "
-                "dans les colonnes MultiIndex."
-            )
+            raise ValueError("MultiIndex : Colonne 'Close' introuvable.")
 
-        # On prend la première colonne candidate
+        # On prend la première candidate
         chosen = candidate_cols[0]
         close_series = df[chosen]
-
-        # Si jamais c'est encore un DataFrame (plusieurs colonnes), on prend la première
+        
+        # Si c'est encore un DataFrame (doublons), on prend la première colonne
         if isinstance(close_series, pd.DataFrame):
             close_series = close_series.iloc[:, 0]
 
-        return close_series.astype(float)
-
     # --- Cas colonnes simples ---
-    cols_lower = {str(c).lower(): c for c in df.columns}
+    else:
+        cols_lower = {str(c).lower(): c for c in df.columns}
+        col_name = None
+        for key in ("close", "adj close", "adj_close", "adjclose"):
+            if key in cols_lower:
+                col_name = cols_lower[key]
+                break
 
-    col_name = None
-    for key in ("close", "adj close", "adj_close", "adjclose"):
-        if key in cols_lower:
-            col_name = cols_lower[key]
-            break
+        if col_name is None:
+            raise ValueError("DataFrame : Colonne 'Close' introuvable.")
 
-    if col_name is None:
-        raise ValueError(
-            "Le DataFrame doit contenir une colonne 'close' ou 'adj close'."
-        )
+        close_series = df[col_name]
+        if isinstance(close_series, pd.DataFrame):
+            close_series = close_series.iloc[:, 0]
 
-    close = df[col_name]
-    if isinstance(close, pd.DataFrame):
-        close = close.iloc[:, 0]
-
-    return close.astype(float)
+    # Forçage brut en float pour éviter les objets ou pd.NA
+    return pd.to_numeric(close_series, errors='coerce').astype(float)
 
 
-def run_buy_and_hold(df: pd.DataFrame, initial_cash: float = 10_000) -> StrategyResult:
+def _run_long_only_backtest(
+    prices: pd.Series,
+    desired_position: pd.Series,
+    initial_cash: float = 10_000,
+) -> StrategyResult:
     """
-    Stratégie buy & hold simple : on achète 100% du capital au début,
-    on garde jusqu'à la fin. df doit contenir une colonne 'close'.
+    Moteur générique long-only.
+    
+    PRINCIPE ANTI-LOOKAHEAD :
+    1. 'desired_position' est le signal calculé à la clôture de T.
+    2. On entre en position à T+1.
+    3. Le rendement capturé est celui de T+1 (Close[T+1] vs Close[T]).
     """
-    prices = _get_close_series(df)
+    # Alignement et nettoyage
+    prices = prices.astype(float)
+    desired_position = desired_position.reindex(prices.index).fillna(0.0).astype(float)
 
-    # nombre de parts achetées au début
-    shares = initial_cash / prices.iloc[0]
-    equity = shares * prices
+    # DÉCALAGE CRITIQUE :
+    # Si le signal est généré le soir de J (desired_position[J]), 
+    # on est exposé au marché le jour J+1.
+    effective_position = desired_position.shift(1).fillna(0.0)
 
-    position = pd.Series(1.0, index=prices.index)  # toujours investi
-    benchmark = equity.copy()  # ici benchmark = même chose
+    # Rendements du marché (Close to Close)
+    market_returns = prices.pct_change().fillna(0.0)
+
+    # Rendement stratégie = Position de la veille * Rendement du jour
+    strategy_returns = effective_position * market_returns
+
+    # Calcul des courbes (base 1.0 pour calcul, puis multiplié par cash)
+    equity = (1 + strategy_returns).cumprod() * initial_cash
+    benchmark = (1 + market_returns).cumprod() * initial_cash
 
     return StrategyResult(
         equity_curve=equity,
-        position=position,
+        position=effective_position,
         benchmark=benchmark,
     )
 
+
+# ============================================================
+#  STRATÉGIES IMPLÉMENTATION
+# ============================================================
+
+def run_buy_and_hold(df: pd.DataFrame, initial_cash: float = 10_000) -> StrategyResult:
+    prices = _get_close_series(df)
+    desired_position = pd.Series(1.0, index=prices.index)
+    
+    return _run_long_only_backtest(prices, desired_position, initial_cash)
 
 
 def run_sma_crossover(
@@ -95,55 +121,52 @@ def run_sma_crossover(
     long_window: int = 50,
     initial_cash: float = 10_000,
 ) -> StrategyResult:
-    """
-    Stratégie SMA crossover :
-    - long quand SMA courte > SMA longue
-    - cash sinon.
-    """
+    
     prices = _get_close_series(df)
-
-    if "close" not in df.columns:
-        raise ValueError("Le DataFrame doit contenir une colonne 'close'.")
-
+    
     sma_short = prices.rolling(short_window).mean()
     sma_long = prices.rolling(long_window).mean()
 
-    # signal brut
-    raw_signal = (sma_short > sma_long).astype(float)
-    # pour éviter d'être investi avant que les moyennes existent
-    raw_signal[(sma_short.isna()) | (sma_long.isna())] = 0.0
+    # Logique : 1 si Short > Long, sinon 0
+    # astype(int) convertit True -> 1, False -> 0
+    desired_position = (sma_short > sma_long).astype(int)
+    
+    # Nettoyage des périodes de chauffe (avant que SMA long ne soit calculé)
+    desired_position[sma_long.isna()] = 0
 
-    # position = signal du jour précédent (on exécute au close)
-    position = raw_signal.shift(1).fillna(0.0)
+    return _run_long_only_backtest(prices, desired_position, initial_cash)
 
-    returns = prices.pct_change().fillna(0.0)
-    strategy_returns = position * returns
 
-    equity = (1 + strategy_returns).cumprod() * initial_cash
-
-    benchmark = (1 + returns).cumprod() * initial_cash
-
-    return StrategyResult(
-        equity_curve=equity,
-        position=position,
-        benchmark=benchmark,
-    )
-
-def _compute_rsi(prices: pd.Series, window: int = 14) -> pd.Series:
+def _compute_rsi_safe(prices: pd.Series, window: int = 14) -> pd.Series:
     """
-    RSI classique (approx. Wilder) calculé à partir d'une série de prix.
+    Calcul vectorisé et sécurisé du RSI.
+    Gère les divisions par zéro (marché purement haussier).
     """
     delta = prices.diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
+    
+    # Séparation gains/pertes (copie pour éviter warnings)
+    gain = delta.clip(lower=0.0).copy()
+    loss = -delta.clip(upper=0.0).copy()
 
-    # Moyenne exponentielle pour lisser (plus proche de Wilder que simple moyenne)
-    avg_gain = gain.ewm(alpha=1/window, adjust=False).mean()
-    avg_loss = loss.ewm(alpha=1/window, adjust=False).mean()
+    # Moyenne exponentielle (Wilder)
+    avg_gain = gain.ewm(alpha=1/window, min_periods=window, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/window, min_periods=window, adjust=False).mean()
 
-    rs = avg_gain / avg_loss.replace(0, pd.NA)
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
+    # Calcul RS
+    # Cas normal : avg_gain / avg_loss
+    # Cas division par zéro (avg_loss = 0) : on gère après
+    rs = avg_gain / avg_loss
+
+    # Calcul RSI standard
+    rsi = 100.0 - (100.0 / (1.0 + rs))
+
+    # Cas particuliers :
+    # Si avg_loss est 0 (jamais baissé), le RSI est mathématiquement 100
+    rsi[avg_loss == 0] = 100.0
+    
+    # Si avg_gain est 0 (jamais monté), le RSI est 0 (déjà géré par la formule 100 - 100/1)
+
+    return rsi.fillna(50.0) # 50 = neutre par défaut si données insuffisantes
 
 
 def run_rsi_strategy(
@@ -154,39 +177,29 @@ def run_rsi_strategy(
     initial_cash: float = 10_000,
 ) -> StrategyResult:
     """
-    Stratégie RSI basique :
-    - On entre long quand RSI < oversold
-    - On sort (cash) quand RSI > overbought
-    - Sinon on conserve la position précédente.
+    Stratégie Mean Reversion RSI :
+    - Achat quand RSI passe SOUS 'oversold' (30) -> On parie sur le rebond
+    - Vente quand RSI passe AU-DESSUS de 'overbought' (70)
+    - Hold entre les deux
     """
-    if "close" not in df.columns:
-        raise ValueError("Le DataFrame doit contenir une colonne 'close'.")
-
     prices = _get_close_series(df)
-    rsi = _compute_rsi(prices, window=window)
+    rsi = _compute_rsi_safe(prices, window)
 
-    # Signal brut : -1, 0, 1 (mais on ne prend que long/cash ici)
-    signal = pd.Series(0.0, index=prices.index)
-    signal[rsi < oversold] = 1.0      # entrée long
-    signal[rsi > overbought] = 0.0    # sortie
+    # Initialisation du signal à NaN (float)
+    signal = pd.Series(np.nan, index=prices.index)
 
-    # On conserve la dernière position connue entre les signaux
-    position = signal.replace(0.0, pd.NA).ffill().fillna(0.0)
+    # Logique d'entrée/sortie
+    # 1. On place des 1.0 là où on veut ENTRER (Oversold)
+    signal[rsi < oversold] = 1.0
+    
+    # 2. On place des 0.0 là où on veut SORTIR (Overbought)
+    signal[rsi > overbought] = 0.0
 
-    # On décale d'un bar pour exécuter au close suivant
-    position = position.shift(1).fillna(0.0)
+    # 3. On propage la dernière décision valide (Hold state)
+    # ffill() va remplir les NaN entre 30 et 70 avec la dernière valeur (1 ou 0)
+    desired_position = signal.ffill().fillna(0.0)
 
-    returns = prices.pct_change().fillna(0.0)
-    strategy_returns = position * returns
-
-    equity = (1 + strategy_returns).cumprod() * initial_cash
-    benchmark = (1 + returns).cumprod() * initial_cash
-
-    return StrategyResult(
-        equity_curve=equity,
-        position=position,
-        benchmark=benchmark,
-    )
+    return _run_long_only_backtest(prices, desired_position, initial_cash)
 
 
 def run_momentum_strategy(
@@ -194,69 +207,55 @@ def run_momentum_strategy(
     lookback: int = 10,
     initial_cash: float = 10_000,
 ) -> StrategyResult:
-    """
-    Stratégie Momentum simple :
-    - On est long si la performance sur 'lookback' périodes est > 0
-    - sinon on est en cash.
-    """
-    if "close" not in df.columns:
-        raise ValueError("Le DataFrame doit contenir une colonne 'close'.")
-
+    
     prices = _get_close_series(df)
-
-    # Momentum = performance sur la fenêtre passée
+    
+    # Rendement sur 'lookback' jours
     past_return = prices.pct_change(lookback)
-    raw_signal = (past_return > 0).astype(float)
+    
+    # Si rendement > 0, on achète
+    desired_position = (past_return > 0.0).astype(int)
+    
+    # Pas de position avant d'avoir assez de data
+    desired_position[past_return.isna()] = 0.0
 
-    # Position du jour = signal de la veille
-    position = raw_signal.shift(1).fillna(0.0)
+    return _run_long_only_backtest(prices, desired_position, initial_cash)
 
-    returns = prices.pct_change().fillna(0.0)
-    strategy_returns = position * returns
 
-    equity = (1 + strategy_returns).cumprod() * initial_cash
-    benchmark = (1 + returns).cumprod() * initial_cash
-
-    return StrategyResult(
-        equity_curve=equity,
-        position=position,
-        benchmark=benchmark,
-    )
+# ============================================================
+#  ROUTER CENTRAL
+# ============================================================
 
 def run_strategy(df: pd.DataFrame, params: dict) -> StrategyResult:
-    """
-    Router central : en fonction de params['type'], appelle
-    la bonne stratégie.
-    """
     stype = params.get("type", "buy_hold")
+    cash = float(params.get("initial_cash", 10_000))
 
     if stype == "buy_hold":
-        return run_buy_and_hold(df, initial_cash=params.get("initial_cash", 10_000))
+        return run_buy_and_hold(df, initial_cash=cash)
 
     elif stype == "sma_crossover":
         return run_sma_crossover(
             df,
-            short_window=params.get("short_window", 20),
-            long_window=params.get("long_window", 50),
-            initial_cash=params.get("initial_cash", 10_000),
+            short_window=int(params.get("short_window", 20)),
+            long_window=int(params.get("long_window", 50)),
+            initial_cash=cash,
         )
 
     elif stype == "rsi":
         return run_rsi_strategy(
             df,
-            window=params.get("window", 14),
-            oversold=params.get("oversold", 30),
-            overbought=params.get("overbought", 70),
-            initial_cash=params.get("initial_cash", 10_000),
+            window=int(params.get("window", 14)),
+            oversold=float(params.get("oversold", 30)),
+            overbought=float(params.get("overbought", 70)),
+            initial_cash=cash,
         )
 
     elif stype == "momentum":
         return run_momentum_strategy(
             df,
-            lookback=params.get("lookback", 10),
-            initial_cash=params.get("initial_cash", 10_000),
+            lookback=int(params.get("lookback", 10)),
+            initial_cash=cash,
         )
 
     else:
         raise ValueError(f"Stratégie inconnue: {stype}")
-
