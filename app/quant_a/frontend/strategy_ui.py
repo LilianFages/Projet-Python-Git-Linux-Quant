@@ -21,6 +21,12 @@ from app.common.market_time import (
     filter_market_hours_and_weekends,
 )
 from app.quant_a.frontend.ui import apply_quant_a_theme
+from app.quant_a.backend.forecasting import generate_forecast
+from app.quant_a.frontend.charts import (
+    make_returns_distribution_chart, 
+    make_drawdown_chart, 
+    make_forecast_chart
+)
 
 
 def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> None:
@@ -84,7 +90,7 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
             with st.spinner(f"Optimisation SMA (Cible : {target_metric})..."):
                 best_params, best_score = _optimize_sma(df, initial_cash=initial_cash, target_metric=target_metric)
             strategy_params = best_params
-            best_info_msg = f"✅ SMA {best_params['short_window']} / {best_params['long_window']} — {target_metric}: {format_score(best_score, target_metric)}"
+            best_info_msg = f" SMA {best_params['short_window']} / {best_params['long_window']} — {target_metric}: {format_score(best_score, target_metric)}"
 
     elif strategy_name == "RSI Strategy":
         col_rsi1, col_rsi2, col_rsi3 = st.columns(3)
@@ -110,7 +116,7 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
             with st.spinner(f"Optimisation RSI (Cible : {target_metric})..."):
                 best_params, best_score = _optimize_rsi(df, initial_cash=initial_cash, target_metric=target_metric)
             strategy_params = best_params
-            best_info_msg = f"✅ RSI {best_params['window']} ({best_params['oversold']}/{best_params['overbought']}) — {target_metric}: {format_score(best_score, target_metric)}"
+            best_info_msg = f" RSI {best_params['window']} ({best_params['oversold']}/{best_params['overbought']}) — {target_metric}: {format_score(best_score, target_metric)}"
 
     else:  # Momentum
         mom_window = st.number_input("Fenêtre momentum (jours)", min_value=2, value=10)
@@ -123,7 +129,7 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
             with st.spinner(f"Optimisation Momentum (Cible : {target_metric})..."):
                 best_params, best_score = _optimize_momentum(df, initial_cash=initial_cash, target_metric=target_metric)
             strategy_params = best_params
-            best_info_msg = f"✅ Lookback {best_params['lookback']} jours — {target_metric}: {format_score(best_score, target_metric)}"
+            best_info_msg = f" Lookback {best_params['lookback']} jours — {target_metric}: {format_score(best_score, target_metric)}"
 
     if best_info_msg:
         st.success(best_info_msg)
@@ -147,7 +153,7 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
 
     # 6) Tableau de bord Métriques
     st.markdown("---")
-    st.subheader("📊 Analyse détaillée de la performance")
+    st.subheader(" Analyse détaillée de la performance")
     
     metrics = calculate_metrics(strategy_result.equity_curve, strategy_result.position)
 
@@ -165,7 +171,40 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
 
     st.markdown("</div>", unsafe_allow_html=True)
 
+    st.markdown("---")
+    
+    # NOUVELLE SECTION : Analyse des Risques
+    st.subheader(" Analyse des risques & Distribution")
+    col_risk1, col_risk2 = st.columns(2)
+    
+    with col_risk1:
+        dd_chart = make_drawdown_chart(strategy_result.equity_curve)
+        st.altair_chart(dd_chart, use_container_width=True)
+        
+    with col_risk2:
+        dist_chart = make_returns_distribution_chart(strategy_result.equity_curve)
+        st.altair_chart(dist_chart, use_container_width=True)
 
+    # NOUVELLE SECTION : Prévision
+    st.markdown("---")
+    st.subheader(" Prévision du Portefeuille (Expérimental)")
+    
+    if st.checkbox("Afficher la projection ARIMA (30 jours)", value=False):
+        with st.spinner("Calcul de la prévision ARIMA..."):
+            # On forecast sur l'Equity Curve
+            forecast_df = generate_forecast(strategy_result.equity_curve, steps=30)
+            
+            if not forecast_df.empty:
+                forecast_chart = make_forecast_chart(strategy_result.equity_curve, forecast_df)
+                st.altair_chart(forecast_chart, use_container_width=True)
+                
+                last_val = strategy_result.equity_curve.iloc[-1]
+                pred_val = forecast_df['forecast'].iloc[-1]
+                delta = (pred_val - last_val) / last_val
+                
+                st.info(f"Tendance projetée à 30 jours : **{delta:+.2%}** (Ceci est un modèle statistique simple, pas un conseil financier).")
+            else:
+                st.warning("Pas assez de données pour générer une prévision fiable.")
 # ============================================================
 #  OPTIMISATION ENGINE
 # ============================================================

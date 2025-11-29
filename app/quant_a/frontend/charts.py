@@ -5,6 +5,7 @@ import pandas as pd
 from app.quant_a.backend.strategies import StrategyResult
 from app.common.market_time import build_compressed_intraday_df, MARKET_HOURS
 from app.common.config import commodity_intraday_ok
+import numpy as np
 
 
 def make_price_chart(
@@ -368,3 +369,78 @@ def make_strategy_value_chart(
     )
 
     return chart
+
+def make_returns_distribution_chart(equity_curve: pd.Series):
+    """
+    Histogramme des rendements journaliers
+    """
+    returns = equity_curve.pct_change().dropna()
+    df_rets = pd.DataFrame({'Rendement': returns})
+
+    chart = alt.Chart(df_rets).mark_bar(opacity=0.7, color='#29b5e8').encode(
+        alt.X('Rendement', bin=alt.Bin(maxbins=50), title='Rendement Journalier'),
+        alt.Y('count()', title='Fréquence'),
+        tooltip=['count()']
+    ).properties(
+        title="Distribution des rendements journaliers",
+        height=250
+    )
+    return chart
+
+def make_drawdown_chart(equity_curve: pd.Series):
+    """
+    Graphique "Underwater" (Drawdown au cours du temps)
+    """
+    # Calcul du drawdown
+    rolling_max = equity_curve.cummax()
+    drawdown = (equity_curve - rolling_max) / rolling_max
+    
+    df_dd = drawdown.reset_index()
+    df_dd.columns = ['Date', 'Drawdown']
+
+    chart = alt.Chart(df_dd).mark_area(color='red', opacity=0.3, line={'color':'darkred'}).encode(
+        x='Date:T',
+        y=alt.Y('Drawdown', axis=alt.Axis(format='%')),
+        tooltip=[alt.Tooltip('Date', format='%Y-%m-%d'), alt.Tooltip('Drawdown', format='.2%')]
+    ).properties(
+        title="Underwater Plot (Drawdowns)",
+        height=200
+    )
+    return chart
+
+def make_forecast_chart(historical_series: pd.Series, forecast_df: pd.DataFrame):
+    """
+    Combine l'historique récent (3 derniers mois pour lisibilité) et la prévision
+    """
+    # On ne garde que les 90 derniers jours d'historique pour que le graphe soit lisible
+    recent_history = historical_series.iloc[-90:].reset_index()
+    recent_history.columns = ['Date', 'Prix']
+    recent_history['Type'] = 'Historique'
+
+    # Préparation forecast
+    fcast = forecast_df.reset_index().rename(columns={'index': 'Date', 'forecast': 'Prix'})
+    fcast['Type'] = 'Prévision'
+
+    # Chart Historique
+    base_hist = alt.Chart(recent_history).mark_line(color='white').encode(
+        x='Date:T',
+        y=alt.Y('Prix', scale=alt.Scale(zero=False))
+    )
+
+    # Chart Prévision (Ligne pointillée)
+    line_fcast = alt.Chart(fcast).mark_line(strokeDash=[5, 5], color='#FFA500').encode(
+        x='Date:T',
+        y='Prix'
+    )
+
+    # Chart Intervalle de confiance (Zone)
+    band_fcast = alt.Chart(forecast_df.reset_index().rename(columns={'index': 'Date'})).mark_area(opacity=0.2, color='#FFA500').encode(
+        x='Date:T',
+        y='lower_conf',
+        y2='upper_conf'
+    )
+
+    return (base_hist + band_fcast + line_fcast).properties(
+        title="Prévision ARIMA (30 jours)",
+        height=300
+    )
