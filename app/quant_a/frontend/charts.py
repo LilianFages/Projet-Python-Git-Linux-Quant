@@ -410,10 +410,12 @@ def make_drawdown_chart(equity_curve: pd.Series):
 
 def make_forecast_chart(historical_series: pd.Series, forecast_df: pd.DataFrame):
     """
-    Combine l'historique récent (3 derniers mois pour lisibilité) et la prévision
+    Combine l'historique récent et la prévision
     """
     # On ne garde que les 90 derniers jours d'historique pour que le graphe soit lisible
-    recent_history = historical_series.iloc[-90:].reset_index()
+    lookback = min(len(historical_series), 252)
+    recent_history = historical_series.iloc[-lookback:].reset_index()
+    
     recent_history.columns = ['Date', 'Prix']
     recent_history['Type'] = 'Historique'
 
@@ -421,10 +423,12 @@ def make_forecast_chart(historical_series: pd.Series, forecast_df: pd.DataFrame)
     fcast = forecast_df.reset_index().rename(columns={'index': 'Date', 'forecast': 'Prix'})
     fcast['Type'] = 'Prévision'
 
-    # Chart Historique
+    # --- CORRECTION DU TITRE DE L'AXE Y ICI ---
+    # On définit l'axe Y sur le graph de base
     base_hist = alt.Chart(recent_history).mark_line(color='white').encode(
         x='Date:T',
-        y=alt.Y('Prix', scale=alt.Scale(zero=False))
+        # On force le titre "Valeur du Portefeuille"
+        y=alt.Y('Prix', scale=alt.Scale(zero=False), title="Valeur du Portefeuille")
     )
 
     # Chart Prévision (Ligne pointillée)
@@ -441,6 +445,6 @@ def make_forecast_chart(historical_series: pd.Series, forecast_df: pd.DataFrame)
     )
 
     return (base_hist + band_fcast + line_fcast).properties(
-        title="Prévision ARIMA (30 jours)",
+        title="Prévision ARIMA",
         height=300
     )
