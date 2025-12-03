@@ -15,11 +15,12 @@ def make_price_chart(
     equity_index: str | None,
     symbol: str,
     interval: str,
+    chart_style: str = "Ligne",  # <--- NOUVEL ARGUMENT
 ) -> alt.Chart | None:
     """
-    Construit le graphique de prix principal en gérant :
-      - 5 jours / 1 mois en temps de marché compressé (bar_index)
-      - toutes les autres périodes en dates réelles
+    Construit le graphique de prix (Ligne ou Bougies).
+    La logique de données (compression du temps) est partagée.
+    Le rendu visuel est séparé pour ne rien casser sur le mode 'Ligne'.
     """
 
     if df is None or df.empty:
@@ -30,12 +31,19 @@ def make_price_chart(
     if isinstance(df_base.columns, pd.MultiIndex):
         df_base.columns = df_base.columns.get_level_values(0)
 
+    # Vérification colonnes minimales
+    # Pour la ligne, on a besoin de 'close'. Pour les bougies, idéalement OHLC.
     if "close" not in df_base.columns:
         return None
+    
+    # Couleurs pour les bougies
+    COLOR_UP = "#00C805"
+    COLOR_DOWN = "#FF333A"
+    COLOR_WICK = "#888888"
 
-    # -----------------------------------
+    # =========================================================
     # CAS 1 : 5 jours -> temps compressé
-    # -----------------------------------
+    # =========================================================
     if (
         selected_period == "5 jours"
         and asset_class in ("Actions", "ETF", "Indices")
@@ -51,63 +59,66 @@ def make_price_chart(
             df_plot = df_plot.reset_index(drop=True)
             df_plot["bar_index"] = range(len(df_plot))
 
-        y_min = float(df_plot["close"].min())
-        y_max = float(df_plot["close"].max())
-        if not pd.notna(y_min) or not pd.notna(y_max):
-            return None
-        padding = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
-
-        x_enc = alt.X(
-            "bar_index:Q",
-            title=None,
-            axis=alt.Axis(grid=False),
-        )
-        y_enc = alt.Y(
-            "close:Q",
-            title="Prix",
-            scale=alt.Scale(domain=[y_min - padding, y_max + padding]),
-            axis=alt.Axis(grid=True),
-        )
-
-        chart = (
-            alt.Chart(df_plot)
-            .mark_line()
-            .encode(
-                x=x_enc,
-                y=y_enc,
-                tooltip=[
-                    alt.Tooltip(
-                        "date:T",
-                        title="Date/heure réelle",
-                        format="%d/%m/%Y %H:%M",
-                    ),
-                    alt.Tooltip("close:Q", title="Clôture", format=",.2f"),
-                ],
+        # --- BRANCHE : BOUGIES ---
+        if chart_style == "Bougies" and {"open", "high", "low"}.issubset(df_plot.columns):
+            # Calcul échelle Y sur High/Low
+            y_min = float(df_plot["low"].min())
+            y_max = float(df_plot["high"].max())
+            padding = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
+            
+            base = alt.Chart(df_plot).encode(
+                x=alt.X("bar_index:Q", title=None, axis=alt.Axis(grid=False))
             )
-            .interactive()
-        )
-        return chart
+            rule = base.mark_rule(color=COLOR_WICK).encode(
+                y=alt.Y("low:Q", scale=alt.Scale(domain=[y_min - padding, y_max + padding]), axis=alt.Axis(title="Prix", grid=True)),
+                y2=alt.Y2("high:Q")
+            )
+            bar = base.mark_bar().encode(
+                y=alt.Y("open:Q"),
+                y2=alt.Y2("close:Q"),
+                color=alt.condition("datum.open < datum.close", alt.value(COLOR_UP), alt.value(COLOR_DOWN)),
+                tooltip=[
+                    alt.Tooltip("date:T", title="Date", format="%d/%m %H:%M"),
+                    alt.Tooltip("open:Q", title="Ouv", format=",.2f"),
+                    alt.Tooltip("high:Q", title="Haut", format=",.2f"),
+                    alt.Tooltip("low:Q", title="Bas", format=",.2f"),
+                    alt.Tooltip("close:Q", title="Clôt", format=",.2f"),
+                ]
+            )
+            return (rule + bar).interactive()
 
-    # -----------------------------------
+        # --- BRANCHE : LIGNE (Ton code exact) ---
+        else:
+            y_min = float(df_plot["close"].min())
+            y_max = float(df_plot["close"].max())
+            if not pd.notna(y_min) or not pd.notna(y_max): return None
+            padding = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
+
+            x_enc = alt.X("bar_index:Q", title=None, axis=alt.Axis(grid=False))
+            y_enc = alt.Y("close:Q", title="Prix", scale=alt.Scale(domain=[y_min - padding, y_max + padding]), axis=alt.Axis(grid=True))
+
+            return alt.Chart(df_plot).mark_line().encode(
+                x=x_enc, y=y_enc,
+                tooltip=[
+                    alt.Tooltip("date:T", title="Date/heure réelle", format="%d/%m/%Y %H:%M"),
+                    alt.Tooltip("close:Q", title="Clôture", format=",.2f"),
+                ]
+            ).interactive()
+
+    # =========================================================
     # CAS 2 : 1 mois -> temps compressé
-    # -----------------------------------
+    # =========================================================
     if (
         selected_period == "1 mois"
         and (
             (asset_class in ("Actions", "ETF", "Indices") and equity_index in MARKET_HOURS)
             or (asset_class == "Forex")
-            or (
-                asset_class == "Matières premières"
-                and commodity_intraday_ok(symbol)
-            )
+            or (asset_class == "Matières premières" and commodity_intraday_ok(symbol))
         )
     ):
-        if asset_class in ("Actions", "ETF", "Indices"):
-            market_key = equity_index
-        elif asset_class == "Forex":
-            market_key = "FOREX"
-        else:
-            market_key = "COMMODITIES"
+        if asset_class in ("Actions", "ETF", "Indices"): market_key = equity_index
+        elif asset_class == "Forex": market_key = "FOREX"
+        else: market_key = "COMMODITIES"
 
         df_plot = build_compressed_intraday_df(df, market_key, freq="30min")
         if df_plot.empty or "close" not in df_plot.columns:
@@ -119,131 +130,126 @@ def make_price_chart(
             df_plot = df_plot.reset_index(drop=True)
             df_plot["bar_index"] = range(len(df_plot))
 
-        y_min = float(df_plot["close"].min())
-        y_max = float(df_plot["close"].max())
-        if not pd.notna(y_min) or not pd.notna(y_max):
-            return None
-        padding = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
-
-        x_enc = alt.X(
-            "bar_index:Q",
-            title=None,
-            axis=alt.Axis(grid=False),
-        )
-        y_enc = alt.Y(
-            "close:Q",
-            title="Prix",
-            scale=alt.Scale(domain=[y_min - padding, y_max + padding]),
-            axis=alt.Axis(grid=True),
-        )
-
-        chart = (
-            alt.Chart(df_plot)
-            .mark_line()
-            .encode(
-                x=x_enc,
-                y=y_enc,
-                tooltip=[
-                    alt.Tooltip(
-                        "date:T",
-                        title="Date/heure réelle",
-                        format="%d/%m/%Y %H:%M",
-                    ),
-                    alt.Tooltip("close:Q", title="Clôture", format=",.2f"),
-                ],
+        # --- BRANCHE : BOUGIES ---
+        if chart_style == "Bougies" and {"open", "high", "low"}.issubset(df_plot.columns):
+            y_min = float(df_plot["low"].min())
+            y_max = float(df_plot["high"].max())
+            padding = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
+            
+            base = alt.Chart(df_plot).encode(
+                x=alt.X("bar_index:Q", title=None, axis=alt.Axis(grid=False))
             )
-            .interactive()
-        )
-        return chart
+            rule = base.mark_rule(color=COLOR_WICK).encode(
+                y=alt.Y("low:Q", scale=alt.Scale(domain=[y_min - padding, y_max + padding]), axis=alt.Axis(title="Prix", grid=True)),
+                y2=alt.Y2("high:Q")
+            )
+            bar = base.mark_bar().encode(
+                y=alt.Y("open:Q"),
+                y2=alt.Y2("close:Q"),
+                color=alt.condition("datum.open < datum.close", alt.value(COLOR_UP), alt.value(COLOR_DOWN)),
+                tooltip=[
+                    alt.Tooltip("date:T", title="Date", format="%d/%m %H:%M"),
+                    alt.Tooltip("open:Q", title="Ouv", format=",.2f"),
+                    alt.Tooltip("high:Q", title="Haut", format=",.2f"),
+                    alt.Tooltip("low:Q", title="Bas", format=",.2f"),
+                    alt.Tooltip("close:Q", title="Clôt", format=",.2f"),
+                ]
+            )
+            return (rule + bar).interactive()
 
-    # -----------------------------------
+        # --- BRANCHE : LIGNE (Ton code exact) ---
+        else:
+            y_min = float(df_plot["close"].min())
+            y_max = float(df_plot["close"].max())
+            if not pd.notna(y_min) or not pd.notna(y_max): return None
+            padding = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
+
+            x_enc = alt.X("bar_index:Q", title=None, axis=alt.Axis(grid=False))
+            y_enc = alt.Y("close:Q", title="Prix", scale=alt.Scale(domain=[y_min - padding, y_max + padding]), axis=alt.Axis(grid=True))
+
+            return alt.Chart(df_plot).mark_line().encode(
+                x=x_enc, y=y_enc,
+                tooltip=[
+                    alt.Tooltip("date:T", title="Date/heure réelle", format="%d/%m/%Y %H:%M"),
+                    alt.Tooltip("close:Q", title="Clôture", format=",.2f"),
+                ]
+            ).interactive()
+
+    # =========================================================
     # CAS 3 : toutes les autres périodes
-    # -----------------------------------
+    # =========================================================
     df_plot = df_base.reset_index().sort_values("date")
 
-    y_min = float(df_base["close"].min())
-    y_max = float(df_base["close"].max())
-    if not pd.notna(y_min) or not pd.notna(y_max):
-        return None
-    padding = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
-
-    # Axe X en fonction de la période
+    # Définition de l'axe X (partagée pour assurer la même échelle temporelle)
     if selected_period == "1 jour":
-        x_enc = alt.X(
-            "date:T",
-            title="Heure",
-            axis=alt.Axis(format="%H:%M", labelAngle=0, tickCount=24),
-        )
+        x_enc = alt.X("date:T", title="Heure", axis=alt.Axis(format="%H:%M", labelAngle=0, tickCount=24))
+        tooltip_fmt = "%d/%m/%Y %H:%M"
     elif selected_period == "5 jours":
-        x_enc = alt.X(
-            "date:T",
-            title="Date / heure",
-            axis=alt.Axis(format="%d/%m %Hh", labelAngle=45, tickCount=10),
-        )
+        x_enc = alt.X("date:T", title="Date / heure", axis=alt.Axis(format="%d/%m %Hh", labelAngle=45, tickCount=10))
+        tooltip_fmt = "%d/%m/%Y %H:%M"
     elif selected_period == "1 mois":
-        x_enc = alt.X(
-            "date:T",
-            title="Date",
-            axis=alt.Axis(format="%d/%m", labelAngle=45, tickCount=15),
-        )
+        x_enc = alt.X("date:T", title="Date", axis=alt.Axis(format="%d/%m", labelAngle=45, tickCount=15))
+        tooltip_fmt = "%d/%m/%Y %H:%M"
     elif selected_period == "6 mois":
-        x_enc = alt.X(
-            "date:T",
-            title="Date",
-            axis=alt.Axis(format="%b %d", labelAngle=0, tickCount=12),
-        )
+        x_enc = alt.X("date:T", title="Date", axis=alt.Axis(format="%b %d", labelAngle=0, tickCount=12))
+        tooltip_fmt = "%d/%m/%Y"
     elif selected_period in ("Année écoulée", "1 année"):
-        x_enc = alt.X(
-            "date:T",
-            title="Mois",
-            axis=alt.Axis(format="%b", labelAngle=0, tickCount=12),
-        )
+        x_enc = alt.X("date:T", title="Mois", axis=alt.Axis(format="%b", labelAngle=0, tickCount=12))
+        tooltip_fmt = "%d/%m/%Y"
     elif selected_period == "5 années":
-        x_enc = alt.X(
-            "date:T",
-            title="Année",
-            axis=alt.Axis(format="%Y", labelAngle=0, tickCount=6),
-        )
+        x_enc = alt.X("date:T", title="Année", axis=alt.Axis(format="%Y", labelAngle=0, tickCount=6))
+        tooltip_fmt = "%d/%m/%Y"
     else:
-        x_enc = alt.X(
-            "date:T",
-            title="Année",
-            axis=alt.Axis(format="%Y", labelAngle=0, tickCount=10),
-        )
+        x_enc = alt.X("date:T", title="Année", axis=alt.Axis(format="%Y", labelAngle=0, tickCount=10))
+        tooltip_fmt = "%d/%m/%Y"
 
-    # Tooltip date selon la période
-    if selected_period in ("1 jour", "5 jours", "1 mois"):
-        date_tooltip = alt.Tooltip(
-            "date:T",
-            title="Date/heure",
-            format="%d/%m/%Y %H:%M",
+    # --- BRANCHE : BOUGIES ---
+    if chart_style == "Bougies" and {"open", "high", "low"}.issubset(df_plot.columns):
+        y_min = float(df_plot["low"].min())
+        y_max = float(df_plot["high"].max())
+        padding = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
+
+        base = alt.Chart(df_plot).encode(x=x_enc)
+        
+        rule = base.mark_rule(color=COLOR_WICK).encode(
+            y=alt.Y("low:Q", scale=alt.Scale(domain=[y_min - padding, y_max + padding]), axis=alt.Axis(title="Prix")),
+            y2=alt.Y2("high:Q")
         )
+        bar = base.mark_bar().encode(
+            y=alt.Y("open:Q"),
+            y2=alt.Y2("close:Q"),
+            color=alt.condition("datum.open < datum.close", alt.value(COLOR_UP), alt.value(COLOR_DOWN)),
+            tooltip=[
+                alt.Tooltip("date:T", title="Date", format=tooltip_fmt),
+                alt.Tooltip("open:Q", title="Ouv", format=",.2f"),
+                alt.Tooltip("high:Q", title="Haut", format=",.2f"),
+                alt.Tooltip("low:Q", title="Bas", format=",.2f"),
+                alt.Tooltip("close:Q", title="Clôt", format=",.2f"),
+            ]
+        )
+        return (rule + bar).interactive()
+
+    # --- BRANCHE : LIGNE (Ton code exact) ---
     else:
-        date_tooltip = alt.Tooltip(
-            "date:T",
-            title="Date",
-            format="%d/%m/%Y",
-        )
+        y_min = float(df_base["close"].min())
+        y_max = float(df_base["close"].max())
+        if not pd.notna(y_min) or not pd.notna(y_max): return None
+        padding = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
 
-    chart = (
-        alt.Chart(df_plot)
-        .mark_line()
-        .encode(
+        # Tooltip date (reprise de ton code)
+        if selected_period in ("1 jour", "5 jours", "1 mois"):
+            date_tooltip = alt.Tooltip("date:T", title="Date/heure", format="%d/%m/%Y %H:%M")
+        else:
+            date_tooltip = alt.Tooltip("date:T", title="Date", format="%d/%m/%Y")
+
+        return alt.Chart(df_plot).mark_line().encode(
             x=x_enc,
-            y=alt.Y(
-                "close:Q",
-                title="Prix",
-                scale=alt.Scale(domain=[y_min - padding, y_max + padding]),
-            ),
+            y=alt.Y("close:Q", title="Prix", scale=alt.Scale(domain=[y_min - padding, y_max + padding])),
             tooltip=[
                 date_tooltip,
                 alt.Tooltip("close:Q", title="Clôture", format=",.2f"),
             ],
-        )
-        .interactive()
-    )
-
-    return chart
+        ).interactive()
 
 
 def make_strategy_comparison_chart(

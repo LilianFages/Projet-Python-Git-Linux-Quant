@@ -2,8 +2,11 @@ import streamlit as st
 from datetime import datetime, timedelta, time as dtime
 import altair as alt
 import pandas as pd
+
+# --- IMPORTS FRONTEND ---
 from app.quant_a.frontend.charts import make_price_chart
 
+# --- IMPORTS COMMON ---
 from app.common.config import (
     ASSET_CLASSES,
     DEFAULT_ASSET_CLASS,
@@ -11,9 +14,7 @@ from app.common.config import (
     DEFAULT_SINGLE_ASSET,
     commodity_intraday_ok,
 )
-
 from app.common.data_loader import load_price_data
-
 from app.common.market_time import (
     MARKET_HOURS,
     INDEX_MARKET_MAP,
@@ -21,10 +22,13 @@ from app.common.market_time import (
     build_compressed_intraday_df,
 )
 
+# --- NOUVEAUX IMPORTS (AUX DATA) ---
+# Assure-toi d'avoir créé le fichier app/common/market_aux_data.py comme vu précédemment
+from app.common.market_aux_data import get_global_ticker_data, get_world_clocks
 
 
 # ============================================================
-#  THEME
+#  THEME & CSS
 # ============================================================
 
 def apply_quant_a_theme():
@@ -32,45 +36,31 @@ def apply_quant_a_theme():
         """
         <style>
         /* Enlever l’ancien texte "Aller à :" */
-        .sidebar .block-container h2 {
-        display: none;
-        }
+        .sidebar .block-container h2 { display: none; }
 
         /* Nouveau style pour la navigation */
         [data-testid="stSidebar"] .nav-title {
-        font-size: 14px;
-        color: #9FA4B1;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        margin-bottom: 0.5rem;
-        margin-top: 1rem;
-        display: block;
+            font-size: 14px;
+            color: #9FA4B1;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 0.5rem;
+            margin-top: 1rem;
+            display: block;
         }
 
         /* Espacement entre les radios */
-        [data-testid="stSidebar"] .stRadio > div {
-        gap: 0.4rem;
-        }
+        [data-testid="stSidebar"] .stRadio > div { gap: 0.4rem; }
 
         /* Meilleur espacement général de la sidebar */
-        [data-testid="stSidebar"] .block-container {
-        padding-top: 1.5rem;
-        }
+        [data-testid="stSidebar"] .block-container { padding-top: 1.5rem; }
 
         /* ====== Largeur de la zone centrale ====== */
-        /* Nouveau sélecteur Streamlit pour le conteneur principal */
         .block-container {
             padding-left: 2rem;
             padding-right: 2rem;
             padding-top: 2rem;
-            max-width: 100%;           /* plus de limite à ~1200px */
-        }
-
-        /* Compat ancien sélecteur (.main) si jamais */
-        .main {
-            padding-left: 2rem;
-            padding-right: 2rem;
-            padding-top: 2rem;
+            max-width: 100%;
         }
 
         /* Sidebar un peu plus fine + bordure */
@@ -85,34 +75,15 @@ def apply_quant_a_theme():
             letter-spacing: 0.05em;
             text-transform: uppercase;
             color:#E5E5E5;
-            margin-bottom: 0.5rem; /* Réduire l'espace sous le titre */
+            margin-bottom: 0.5rem;
         }
         
         .quant-subtitle {
             font-size: 14px;
             color: #9FA4B1;
-            margin-bottom: 1.5rem; /* Espace avant la première carte */
+            margin-bottom: 1.5rem;
         }
 
-        /* Style des Cartes (Cadres) */
-        .quant-card {
-            background-color:#14161C;
-            border-radius:8px;
-            padding:1.5rem;
-            border:1px solid #1F232B;
-            margin-bottom: 1rem; /* Espace entre deux cartes */
-        }
-
-        /* FORCER LES TRAITS FINS (---) */
-        /* Cela remplace le gros séparateur Streamlit par un trait fin élégant */
-        hr {
-            margin-top: 1.5rem !important;
-            margin-bottom: 1.5rem !important;
-            border: 0 !important;
-            border-top: 1px solid #2B2F3B !important; /* Gris très sombre et fin */
-            opacity: 1 !important;
-        }
-        
         /* Boutons */
         div.stButton > button:first-child {
             background-color:#2D8CFF;
@@ -126,15 +97,71 @@ def apply_quant_a_theme():
             background-color:#1C5FB8;
             border-color:#1C5FB8;
         }
+
+        /* BANDEAU DEFILANT (TICKER) */
+        .ticker-wrap {
+            width: 100%;
+            overflow: hidden;
+            background-color: #14161C;
+            border-bottom: 1px solid #1F232B;
+            border-top: 1px solid #1F232B;
+            padding: 6px 0;
+            margin-bottom: 1rem;
+            white-space: nowrap;
+        }
+        .ticker {
+            display: inline-block;
+            animation: ticker 45s linear infinite;
+        }
+        .ticker-item {
+            display: inline-block;
+            padding: 0 1.5rem;
+            font-size: 14px;
+            font-family: monospace;
+        }
+        .ticker-up { color: #00C805; }
+        .ticker-down { color: #FF333A; }
+        
+        @keyframes ticker {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-100%); }
+        }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
 
-
 # ============================================================
-#  PERIODES (type TradingView)
+#  HELPER RENDER TICKER
+# ============================================================
+
+def render_ticker_tape():
+    """Génère le HTML pour le bandeau défilant."""
+    data = get_global_ticker_data()
+    if not data: return
+
+    # Construction des items
+    items_html = ""
+    for item in data * 2: 
+        color_class = "ticker-up" if item["change"] >= 0 else "ticker-down"
+        sign = "+" if item["change"] >= 0 else ""
+        
+        # On construit chaque item sans indentation inutile
+        items_html += f"<div class='ticker-item'><span style='color:#9FA4B1;'>{item['name']}</span> <span style='font-weight:bold;'>{item['price']:,.2f}</span> <span class='{color_class}'>({sign}{item['change']:.2%})</span></div>"
+    
+    # LE FIX EST ICI : On crée une chaîne sans retour à la ligne ni espaces au début
+    full_html = f"""
+<div class="ticker-wrap">
+<div class="ticker">
+{items_html}
+</div>
+</div>
+"""
+    
+    st.markdown(full_html, unsafe_allow_html=True)
+# ============================================================
+#  PERIODES
 # ============================================================
 
 def get_period_dates_and_interval(period_label: str):
@@ -168,6 +195,7 @@ def get_period_dates_and_interval(period_label: str):
 
     return start, end, interval
 
+
 # ============================================================
 #  UI SUB-COMPONENTS
 # ============================================================
@@ -189,7 +217,7 @@ def render_asset_summary(df: pd.DataFrame) -> None:
 
     # Gestion robuste des colonnes
     close_val = float(last_row.get("close", float("nan")))
-    open_val = float(last_row.get("open", float("nan")))
+    # open_val = float(last_row.get("open", float("nan"))) # Unused variable
     high_val = float(df_stats["high"].max()) if "high" in df_stats.columns else float("nan")
     low_val  = float(df_stats["low"].min()) if "low" in df_stats.columns else float("nan")
     vol_val  = float(last_row.get("volume", float("nan"))) if "volume" in df_stats.columns else float("nan")
@@ -231,17 +259,32 @@ def render_asset_summary(df: pd.DataFrame) -> None:
     )
 
 
-
 # ============================================================
-#  RENDER
+#  MAIN RENDER
 # ============================================================
 
 def render():
-
     apply_quant_a_theme()
 
-    st.markdown("<div class='quant-title'>Quant A — ANALYSE MARCHE</div>", unsafe_allow_html=True)
-    st.markdown("<div class='quant-subtitle'>Vue détaillée de l'actif</div>", unsafe_allow_html=True)
+    # 1. TITRE
+    st.markdown("<div class='quant-title'>MARKET ANALYSIS</div>", unsafe_allow_html=True)
+    st.markdown("<div class='quant-subtitle'>Analyse technique et données de marché temps réel.</div>", unsafe_allow_html=True)
+    
+    # 2. BANDEAU DÉFILANT (TICKER)
+    render_ticker_tape()
+
+    # 3. HORLOGES SALLE DE MARCHÉ
+    clocks = get_world_clocks()
+    # On utilise 5 colonnes pour afficher les places majeures
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("New York", clocks.get("NY", "--:--"))
+    c2.metric("London", clocks.get("London", "--:--"))
+    c3.metric("Paris", clocks.get("Paris", "--:--"))
+    c4.metric("Hong Kong", clocks.get("HK", "--:--"))
+    c5.metric("Tokyo", clocks.get("Tokyo", "--:--"))
+    
+    st.markdown("---") 
+
     # --- Sidebar ---
     st.sidebar.subheader("Choix de l'actif")
 
@@ -258,13 +301,10 @@ def render():
 
     options = list(symbols_dict.items())
 
-
     def format_option(opt):
         key, val = opt
-        # si val est un dict (ex: {"name": "...", "intraday_ok": False})
         if isinstance(val, dict):
             return val.get("name", key)
-        # sinon on convertit simplement en texte
         return str(val)
 
     selected_pair = st.sidebar.selectbox(
@@ -274,19 +314,14 @@ def render():
     )
     symbol = selected_pair[0]
 
-    # Pour les ETF, on les traite comme des actions US (horaires S&P 500)
     if selected_class == "ETF":
         selected_index = "S&P 500"
-
-    # Pour les indices, on mappe le symbole vers un marché (CAC 40 ou S&P 500)
     elif selected_class == "Indices":
-    # INDEX_MARKET_MAP est défini en haut du fichier, juste après MARKET_HOURS
         selected_index = INDEX_MARKET_MAP.get(symbol, "S&P 500")
 
     # --- Périodes disponibles ---
     base_periods = ["1 jour","5 jours","1 mois","6 mois","Année écoulée","1 année","5 années","Tout l'historique"]
 
-    # Si matière première sans intraday → retirer "1 jour"
     if selected_class == "Matières premières" and not commodity_intraday_ok(symbol):
         periods = [p for p in base_periods if p != "1 jour"]
     else:
@@ -299,14 +334,12 @@ def render():
         label_visibility="collapsed",
     )
 
-    # REALOAD GRAPH
-
+    # RELOAD GRAPH
     start, end, interval = get_period_dates_and_interval(selected_period)
 
-    # --- Patch : pas d'intraday pour certaines matières premières sur 5 jours / 1 mois ---
+    # --- Patch matières premières ---
     if selected_class == "Matières premières" and selected_period in ("5 jours", "1 mois"):
         if not commodity_intraday_ok(symbol):
-            # On force l'intervalle en daily pour éviter les données intraday foireuses
             interval = "1d"
             st.info("Données intraday non fiables pour cet actif : affichage en données journalières.")
 
@@ -314,9 +347,6 @@ def render():
     try:
         df = load_price_data(symbol, start, end, interval)
     except Exception as e:
-        # Fallback spécial pour 1 jour : si on est en période de fermeture
-        # (week-end, jour férié...) on élargit un peu la fenêtre.
-        # -> PAS nécessaire pour les cryptos (marché 24/7)
         if selected_period == "1 jour" and selected_class != "Crypto":
             alt_start = start - timedelta(days=3)
             try:
@@ -328,7 +358,7 @@ def render():
             st.error(f"Erreur lors du chargement : {e}")
             return
 
-    # --- Filter (heures de marché / week-ends / resampling intraday) ---
+    # --- Filter ---
     df = filter_market_hours_and_weekends(
         df,
         asset_class=selected_class,
@@ -337,9 +367,8 @@ def render():
         interval=interval,
     )
 
-    # --- Spécifique 1 jour : ne garder que le DERNIER jour de cotation ---
+    # --- Spécifique 1 jour ---
     if selected_period == "1 jour":
-        # On prend le dernier timestamp dispo → sa date (sans heure)
         last_ts = df.index.max()
         if pd.isna(last_ts):
             st.error("Aucune donnée disponible pour la période 1 jour.")
@@ -347,20 +376,18 @@ def render():
         last_day = last_ts.normalize()
         df = df[df.index.normalize() == last_day]
 
-
-    # --- Spécifique 5 jours : ne garder que les 5 DERNIERS jours d'ouverture ---
+    # --- Spécifique 5 jours ---
     if selected_period == "5 jours":
-        # normalise() enlève l'heure : on ne garde que la date
         trading_days = sorted(df.index.normalize().unique())
         if len(trading_days) > 5:
             last_5_days = trading_days[-5:]
             df = df[df.index.normalize().isin(last_5_days)]
     
-    # --- Spécifique 1 mois : ne garder que ~22 DERNIERS jours d'ouverture ---
+    # --- Spécifique 1 mois ---
     if selected_period == "1 mois" and selected_class != "Crypto":
         trading_days = sorted(df.index.normalize().unique())
         if len(trading_days) > 22:
-            last_days = trading_days[-22:]  # ≈ 1 mois de bourse
+            last_days = trading_days[-22:]
             df = df[df.index.normalize().isin(last_days)]
 
 
@@ -370,8 +397,16 @@ def render():
 
     # --- GRAPH PRIX ---
     st.markdown("---")
-    st.subheader("Graphique")
+    
+    # Header du graphique avec Sélecteur de style à droite
+    col_g1, col_g2 = st.columns([3, 1])
+    with col_g1:
+        st.subheader("Graphique")
+    with col_g2:
+        # Sélecteur Ligne vs Bougies
+        chart_style = st.radio("Style", ["Ligne", "Bougies"], horizontal=True, label_visibility="collapsed")
 
+    # Appel de make_price_chart avec le nouveau paramètre chart_style
     price_chart = make_price_chart(
         df=df,
         selected_period=selected_period,
@@ -379,16 +414,10 @@ def render():
         equity_index=selected_index,
         symbol=symbol,
         interval=interval,
+        chart_style=chart_style # <--- NOUVEAU
     )
 
     if price_chart is not None:
         st.altair_chart(price_chart, use_container_width=True)
     else:
         st.info("Aucun graphique de prix à afficher.")
-
-
-
-
-
-
-
