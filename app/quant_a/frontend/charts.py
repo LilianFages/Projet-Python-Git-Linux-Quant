@@ -8,6 +8,11 @@ from app.common.config import commodity_intraday_ok
 import numpy as np
 
 
+import altair as alt
+import pandas as pd
+# Assurez-vous d'avoir vos imports habituels et les fonctions 
+# build_compressed_intraday_df, commodity_intraday_ok, MARKET_HOURS définies.
+
 def make_price_chart(
     df: pd.DataFrame,
     selected_period: str,
@@ -15,12 +20,10 @@ def make_price_chart(
     equity_index: str | None,
     symbol: str,
     interval: str,
-    chart_style: str = "Ligne",  # <--- NOUVEL ARGUMENT
+    chart_style: str = "Ligne",
 ) -> alt.Chart | None:
     """
-    Construit le graphique de prix (Ligne ou Bougies).
-    La logique de données (compression du temps) est partagée.
-    Le rendu visuel est séparé pour ne rien casser sur le mode 'Ligne'.
+    Construit le graphique de prix (Ligne ou Bougies) avec Volume optionnel en superposition.
     """
 
     if df is None or df.empty:
@@ -32,14 +35,31 @@ def make_price_chart(
         df_base.columns = df_base.columns.get_level_values(0)
 
     # Vérification colonnes minimales
-    # Pour la ligne, on a besoin de 'close'. Pour les bougies, idéalement OHLC.
     if "close" not in df_base.columns:
         return None
     
-    # Couleurs pour les bougies
+    # Couleurs
     COLOR_UP = "#00C805"
     COLOR_DOWN = "#FF333A"
     COLOR_WICK = "#888888"
+
+    # --- NOUVEAU : Définition du paramètre interactif (Checkbox) ---
+    # Crée un paramètre 'toggle_volume' qui est True par défaut,
+    # et le lie à une case à cocher HTML.
+    volume_toggle_param = alt.param(
+        name="toggle_volume",
+        value=True,
+        bind=alt.binding_checkbox(name="Afficher le Volume ")
+    )
+
+    # --- NOUVEAU : Condition d'opacité basée sur la checkbox ---
+    # Si 'toggle_volume' est vrai, opacité = 0.3, sinon 0.
+    volume_opacity_condition = alt.condition(
+        volume_toggle_param,
+        alt.value(0.3),
+        alt.value(0)
+    )
+    # ------------------------------------------------------------
 
     # =========================================================
     # CAS 1 : 5 jours -> temps compressé
@@ -59,16 +79,28 @@ def make_price_chart(
             df_plot = df_plot.reset_index(drop=True)
             df_plot["bar_index"] = range(len(df_plot))
 
-        # --- BRANCHE : BOUGIES ---
+        # --- Ticks et Axe X ---
+        df_ticks = df_plot.copy()
+        df_ticks['date_str'] = df_ticks['date'].dt.strftime('%d/%m')
+        ticks_df = df_ticks.drop_duplicates(subset=['date_str'], keep='first')
+        
+        tick_indices = ticks_df['bar_index'].tolist()
+        tick_labels = ticks_df['date_str'].tolist()
+
+        label_expr = " : ".join([f"datum.value == {int(i)} ? '{l}'" for i, l in zip(tick_indices, tick_labels)])
+        if label_expr:
+            label_expr += " : ''"
+        
+        x_axis_custom = alt.Axis(values=tick_indices, labelExpr=label_expr, title="Date", grid=False)
+
+        # --- BRANCHE : BOUGIES + VOLUME ---
         if chart_style == "Bougies" and {"open", "high", "low"}.issubset(df_plot.columns):
-            # Calcul échelle Y sur High/Low
             y_min = float(df_plot["low"].min())
             y_max = float(df_plot["high"].max())
             padding = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
             
-            base = alt.Chart(df_plot).encode(
-                x=alt.X("bar_index:Q", title=None, axis=alt.Axis(grid=False))
-            )
+            base = alt.Chart(df_plot).encode(x=alt.X("bar_index:Q", axis=x_axis_custom))
+
             rule = base.mark_rule(color=COLOR_WICK).encode(
                 y=alt.Y("low:Q", scale=alt.Scale(domain=[y_min - padding, y_max + padding]), axis=alt.Axis(title="Prix", grid=True)),
                 y2=alt.Y2("high:Q")
@@ -83,18 +115,34 @@ def make_price_chart(
                     alt.Tooltip("high:Q", title="Haut", format=",.2f"),
                     alt.Tooltip("low:Q", title="Bas", format=",.2f"),
                     alt.Tooltip("close:Q", title="Clôt", format=",.2f"),
+                    alt.Tooltip("volume:Q", title="Volume", format=",.0f") if "volume" in df_plot.columns else alt.Tooltip("close:Q", title="Volume", format=",.0f")
                 ]
             )
-            return (rule + bar).interactive()
+            price_chart = rule + bar
 
-        # --- BRANCHE : LIGNE (Ton code exact) ---
+            # Graphique de Volume (Superposé en bas)
+            if "volume" in df_plot.columns and df_plot["volume"].sum() > 0:
+                vol_max = float(df_plot["volume"].max())
+                # ON UTILISE volume_opacity_condition ICI AU LIEU DE opacity=0.3
+                volume_chart = base.mark_bar().encode(
+                    opacity=volume_opacity_condition, # <--- Modifié ici
+                    y=alt.Y("volume:Q", axis=None, scale=alt.Scale(domain=[0, vol_max * 5])),
+                    color=alt.condition("datum.open < datum.close", alt.value(COLOR_UP), alt.value(COLOR_DOWN)),
+                    tooltip=[alt.Tooltip("volume:Q", title="Volume", format=",.0f")]
+                )
+                # ON AJOUTE LE PARAMÈTRE AU GRAPHIQUE FINAL
+                return alt.layer(volume_chart, price_chart).resolve_scale(y='independent').add_params(volume_toggle_param).interactive() # <--- add_params ici
+            
+            return price_chart.interactive()
+
+        # --- BRANCHE : LIGNE ---
         else:
             y_min = float(df_plot["close"].min())
             y_max = float(df_plot["close"].max())
             if not pd.notna(y_min) or not pd.notna(y_max): return None
             padding = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
 
-            x_enc = alt.X("bar_index:Q", title=None, axis=alt.Axis(grid=False))
+            x_enc = alt.X("bar_index:Q", axis=x_axis_custom)
             y_enc = alt.Y("close:Q", title="Prix", scale=alt.Scale(domain=[y_min - padding, y_max + padding]), axis=alt.Axis(grid=True))
 
             return alt.Chart(df_plot).mark_line().encode(
@@ -130,15 +178,31 @@ def make_price_chart(
             df_plot = df_plot.reset_index(drop=True)
             df_plot["bar_index"] = range(len(df_plot))
 
-        # --- BRANCHE : BOUGIES ---
+        # --- Ticks et Axe X ---
+        df_ticks = df_plot.copy()
+        df_ticks['date_str'] = df_ticks['date'].dt.strftime('%d/%m')
+        ticks_df = df_ticks.drop_duplicates(subset=['date_str'], keep='first')
+        
+        step = max(1, len(ticks_df) // 6)
+        ticks_df = ticks_df.iloc[::step]
+
+        tick_indices = ticks_df['bar_index'].tolist()
+        tick_labels = ticks_df['date_str'].tolist()
+
+        label_expr = " : ".join([f"datum.value == {int(i)} ? '{l}'" for i, l in zip(tick_indices, tick_labels)])
+        if label_expr:
+            label_expr += " : ''"
+
+        x_axis_custom = alt.Axis(values=tick_indices, labelExpr=label_expr, title="Date", grid=False)
+
+        # --- BRANCHE : BOUGIES + VOLUME ---
         if chart_style == "Bougies" and {"open", "high", "low"}.issubset(df_plot.columns):
             y_min = float(df_plot["low"].min())
             y_max = float(df_plot["high"].max())
             padding = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
             
-            base = alt.Chart(df_plot).encode(
-                x=alt.X("bar_index:Q", title=None, axis=alt.Axis(grid=False))
-            )
+            base = alt.Chart(df_plot).encode(x=alt.X("bar_index:Q", axis=x_axis_custom))
+            
             rule = base.mark_rule(color=COLOR_WICK).encode(
                 y=alt.Y("low:Q", scale=alt.Scale(domain=[y_min - padding, y_max + padding]), axis=alt.Axis(title="Prix", grid=True)),
                 y2=alt.Y2("high:Q")
@@ -153,18 +217,33 @@ def make_price_chart(
                     alt.Tooltip("high:Q", title="Haut", format=",.2f"),
                     alt.Tooltip("low:Q", title="Bas", format=",.2f"),
                     alt.Tooltip("close:Q", title="Clôt", format=",.2f"),
+                    alt.Tooltip("volume:Q", title="Volume", format=",.0f") if "volume" in df_plot.columns else alt.Tooltip("close:Q", title="Vol", format=",.0f")
                 ]
             )
-            return (rule + bar).interactive()
+            price_chart = rule + bar
 
-        # --- BRANCHE : LIGNE (Ton code exact) ---
+            if "volume" in df_plot.columns and df_plot["volume"].sum() > 0:
+                vol_max = float(df_plot["volume"].max())
+                # ON UTILISE volume_opacity_condition ICI
+                volume_chart = base.mark_bar().encode(
+                    opacity=volume_opacity_condition, # <--- Modifié ici
+                    y=alt.Y("volume:Q", axis=None, scale=alt.Scale(domain=[0, vol_max * 5])),
+                    color=alt.condition("datum.open < datum.close", alt.value(COLOR_UP), alt.value(COLOR_DOWN)),
+                    tooltip=[alt.Tooltip("volume:Q", title="Volume", format=",.0f")]
+                )
+                # ON AJOUTE LE PARAMÈTRE
+                return alt.layer(volume_chart, price_chart).resolve_scale(y='independent').add_params(volume_toggle_param).interactive() # <--- add_params ici
+
+            return price_chart.interactive()
+
+        # --- BRANCHE : LIGNE ---
         else:
             y_min = float(df_plot["close"].min())
             y_max = float(df_plot["close"].max())
             if not pd.notna(y_min) or not pd.notna(y_max): return None
             padding = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
 
-            x_enc = alt.X("bar_index:Q", title=None, axis=alt.Axis(grid=False))
+            x_enc = alt.X("bar_index:Q", axis=x_axis_custom)
             y_enc = alt.Y("close:Q", title="Prix", scale=alt.Scale(domain=[y_min - padding, y_max + padding]), axis=alt.Axis(grid=True))
 
             return alt.Chart(df_plot).mark_line().encode(
@@ -203,7 +282,7 @@ def make_price_chart(
         x_enc = alt.X("date:T", title="Année", axis=alt.Axis(format="%Y", labelAngle=0, tickCount=10))
         tooltip_fmt = "%d/%m/%Y"
 
-    # --- BRANCHE : BOUGIES ---
+    # --- BRANCHE : BOUGIES + VOLUME ---
     if chart_style == "Bougies" and {"open", "high", "low"}.issubset(df_plot.columns):
         y_min = float(df_plot["low"].min())
         y_max = float(df_plot["high"].max())
@@ -225,9 +304,24 @@ def make_price_chart(
                 alt.Tooltip("high:Q", title="Haut", format=",.2f"),
                 alt.Tooltip("low:Q", title="Bas", format=",.2f"),
                 alt.Tooltip("close:Q", title="Clôt", format=",.2f"),
+                alt.Tooltip("volume:Q", title="Volume", format=",.0f") if "volume" in df_plot.columns else alt.Tooltip("close:Q", title="Vol", format=",.0f")
             ]
         )
-        return (rule + bar).interactive()
+        price_chart = rule + bar
+
+        if "volume" in df_plot.columns and df_plot["volume"].sum() > 0:
+            vol_max = float(df_plot["volume"].max())
+            # ON UTILISE volume_opacity_condition ICI
+            volume_chart = base.mark_bar().encode(
+                opacity=volume_opacity_condition, # <--- Modifié ici
+                y=alt.Y("volume:Q", axis=None, scale=alt.Scale(domain=[0, vol_max * 5])),
+                color=alt.condition("datum.open < datum.close", alt.value(COLOR_UP), alt.value(COLOR_DOWN)),
+                tooltip=[alt.Tooltip("volume:Q", title="Volume", format=",.0f")]
+            )
+            # ON AJOUTE LE PARAMÈTRE
+            return alt.layer(volume_chart, price_chart).resolve_scale(y='independent').add_params(volume_toggle_param).interactive() # <--- add_params ici
+
+        return price_chart.interactive()
 
     # --- BRANCHE : LIGNE (Ton code exact) ---
     else:
@@ -236,7 +330,6 @@ def make_price_chart(
         if not pd.notna(y_min) or not pd.notna(y_max): return None
         padding = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
 
-        # Tooltip date (reprise de ton code)
         if selected_period in ("1 jour", "5 jours", "1 mois"):
             date_tooltip = alt.Tooltip("date:T", title="Date/heure", format="%d/%m/%Y %H:%M")
         else:
