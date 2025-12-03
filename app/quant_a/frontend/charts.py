@@ -547,3 +547,163 @@ def make_forecast_chart(historical_series: pd.Series, forecast_df: pd.DataFrame)
         title="Prévision ARIMA",
         height=300
     )
+
+def make_seasonality_heatmap(df: pd.DataFrame, return_col: str = "strategy_return") -> alt.Chart | None:
+    """
+    Génère une Heatmap des rendements mensuels (Année vs Mois).
+    Inclus un nettoyage automatique des années partielles vides (artefacts de début).
+    """
+    if df is None or df.empty:
+        return None
+
+    df_copy = df.copy()
+    
+    if "date" not in df_copy.columns and isinstance(df_copy.index, pd.DatetimeIndex):
+        df_copy = df_copy.reset_index().rename(columns={"index": "date"})
+    elif "date" not in df_copy.columns:
+        return None
+
+    # 1. Calcul des rendements mensuels
+    df_copy["ret_factor"] = 1 + df_copy[return_col]
+    
+    monthly_df = (
+        df_copy.set_index("date")["ret_factor"]
+        .resample("ME")  # 'ME' pour pandas récent, ou 'M'
+        .prod() - 1
+    ).reset_index()
+    
+    monthly_df.columns = ["date", "monthly_return"]
+    
+    monthly_df["year"] = monthly_df["date"].dt.year
+    monthly_df["month"] = monthly_df["date"].dt.strftime('%b') 
+    
+    # --- AJOUT : NETTOYAGE ARTEFACT DÉBUT ---
+    # Si la première année a seulement 1 mois de données ET que le rendement est 0% (ou proche), on l'enlève.
+    years = monthly_df['year'].unique()
+    if len(years) > 1:
+        first_year = min(years)
+        first_year_data = monthly_df[monthly_df['year'] == first_year]
+        
+        # Condition : 1 seul mois enregistré et rendement nul
+        if len(first_year_data) <= 1 and abs(first_year_data.iloc[0]['monthly_return']) < 0.0001:
+            monthly_df = monthly_df[monthly_df['year'] != first_year]
+    # ----------------------------------------
+
+    months_order = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+    # 3. Graphique Altair
+    base = alt.Chart(monthly_df).transform_filter(
+        alt.datum.month != None
+    ).encode(
+        x=alt.X("month:N", sort=months_order, title=None, axis=alt.Axis(labelAngle=0)),
+        y=alt.Y("year:O", title=None)
+    )
+
+    heatmap = base.mark_rect().encode(
+        color=alt.Color(
+            "monthly_return:Q",
+            title="Rendement",
+            scale=alt.Scale(scheme="redyellowgreen", domainMid=0),
+            legend=None
+        ),
+        tooltip=[
+            alt.Tooltip("year:O", title="Année"),
+            alt.Tooltip("month:N", title="Mois"),
+            alt.Tooltip("monthly_return:Q", title="Rendement", format=".2%")
+        ]
+    )
+
+    text = base.mark_text(baseline="middle").encode(
+        text=alt.Text("monthly_return:Q", format=".1%"),
+        color=alt.value("black")
+    )
+
+    return (heatmap + text)
+
+
+def make_rolling_stats_chart(
+    df: pd.DataFrame, 
+    strategy_col: str = "strategy_return", 
+    benchmark_col: str = "benchmark_return",
+    window_days: int = 126
+) -> alt.Chart | None:
+    """
+    Affiche le Beta et la Corrélation glissants sur une fenêtre donnée (ex: 126 jours = 6 mois).
+    """
+    if df is None or df.empty:
+        return None
+    
+    # Sécurisation des colonnes requises
+    if strategy_col not in df.columns or benchmark_col not in df.columns:
+        return None
+        
+    df_calc = df.copy()
+
+    # --- CORRECTION : Gestion de l'index Date ---
+    if "date" not in df_calc.columns and isinstance(df_calc.index, pd.DatetimeIndex):
+        df_calc = df_calc.reset_index()
+        if "date" not in df_calc.columns and "index" in df_calc.columns:
+            df_calc = df_calc.rename(columns={"index": "date"})
+            
+    if "date" not in df_calc.columns:
+        return None
+    # ---------------------------------------------
+
+    df_calc = df_calc.sort_values("date")
+    
+    # 1. Calculs Glissants (Rolling)
+    df_rolling = df_calc.set_index('date')
+    
+    rolling_window = df_rolling.rolling(window=window_days)
+    
+    rolling_corr = rolling_window[strategy_col].corr(df_rolling[benchmark_col])
+    
+    rolling_cov = rolling_window[strategy_col].cov(df_rolling[benchmark_col])
+    rolling_var = rolling_window[benchmark_col].var()
+    rolling_beta = rolling_cov / rolling_var
+    
+    # Reconstitution du DataFrame pour le plot Altair
+    df_plot = pd.DataFrame({
+        "date": rolling_corr.index,
+        "rolling_corr": rolling_corr.values,
+        "rolling_beta": rolling_beta.values
+    }).dropna() # On enlève les NaN du début de période
+    
+    # Transformation format "Long"
+    df_long = df_plot.melt(
+        id_vars=["date"], 
+        value_vars=["rolling_corr", "rolling_beta"], 
+        var_name="Metric", 
+        value_name="Value"
+    )
+    
+    # Dictionnaire pour renommer proprement dans la légende
+    label_map = {
+        "rolling_corr": f"Corrélation ({window_days}j)", 
+        "rolling_beta": f"Beta ({window_days}j)"
+    }
+    df_long["MetricLabel"] = df_long["Metric"].map(label_map)
+
+    # 2. Graphique
+    chart = alt.Chart(df_long).mark_line().encode(
+        x=alt.X("date:T", title="Date"),
+        y=alt.Y("Value:Q", title="Valeur"),
+        # CORRECTION : On place la légende en bas pour ne pas gêner le titre
+        color=alt.Color("MetricLabel:N", title=None, legend=alt.Legend(orient="bottom")),
+        strokeDash=alt.condition(
+            alt.datum.Metric == 'rolling_beta',
+            alt.value([4, 2]),  # Beta en pointillés
+            alt.value([0])      # Corrélation ligne pleine
+        ),
+        tooltip=[
+            alt.Tooltip("date:T", format="%d/%m/%Y"),
+            alt.Tooltip("MetricLabel:N", title="Indicateur"),
+            alt.Tooltip("Value:Q", format=".2f")
+        ]
+    ) # CORRECTION : Retrait du titre Altair (.properties(title=...))
+    
+    # Ligne zéro et un
+    rule_zero = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(color='gray', opacity=0.5).encode(y='y')
+    rule_one = alt.Chart(pd.DataFrame({'y': [1]})).mark_rule(color='gray', strokeDash=[2,2], opacity=0.3).encode(y='y')
+
+    return (chart + rule_zero + rule_one).interactive()
