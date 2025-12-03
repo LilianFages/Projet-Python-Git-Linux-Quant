@@ -267,8 +267,8 @@ def render():
     apply_quant_a_theme()
 
     # 1. TITRE
-    st.markdown("<div class='quant-title'>MARKET ANALYSIS</div>", unsafe_allow_html=True)
-    st.markdown("<div class='quant-subtitle'>Analyse technique et données de marché temps réel.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='quant-title'>ANALYSE MARCHE</div>", unsafe_allow_html=True)
+    st.markdown("<div class='quant-subtitle'>Données de marché temps réel.</div>", unsafe_allow_html=True)
     
     # 2. BANDEAU DÉFILANT (TICKER)
     render_ticker_tape()
@@ -404,7 +404,7 @@ def render():
         st.subheader("Graphique")
     with col_g2:
         # Sélecteur Ligne vs Bougies
-        chart_style = st.radio("Style", ["Ligne", "Bougies"], horizontal=True, label_visibility="collapsed")
+        chart_style = st.radio("Style", ["Droite", "Bougies"], horizontal=True, label_visibility="collapsed")
 
     # Appel de make_price_chart avec le nouveau paramètre chart_style
     price_chart = make_price_chart(
