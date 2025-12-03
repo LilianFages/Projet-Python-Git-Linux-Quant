@@ -36,7 +36,7 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
     if df is None or df.empty:
         return
 
-    st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
+    st.markdown("---")
     st.subheader("Stratégie & Backtest — Performance relative")
 
     # 1) Choix de la stratégie
@@ -166,7 +166,6 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
         strategy_result = run_strategy(df, strategy_params)
     except Exception as e:
         st.error(f"Erreur d'exécution : {e}")
-        st.markdown("</div>", unsafe_allow_html=True)
         return
 
     # 4) Graphiques
@@ -195,8 +194,6 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
     m6.metric("Win Rate", f"{metrics.win_rate:.2%}", help="% de jours positifs.")
     m7.metric("Nb Trades", f"{metrics.trades_count}")
     m8.metric("Temps Investi", f"{metrics.exposure_time:.0%}", help="% du temps passé sur le marché (hors cash).")
-
-    st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("---")
     
@@ -306,8 +303,9 @@ def render():
     apply_quant_a_theme()
 
     # TITRE
-    st.markdown("<div class='quant-title'>Quant A — Strategy Lab</div>", unsafe_allow_html=True)
-    
+    st.markdown("<div class='quant-title'>Quant A — Stratégies & Backtest</div>", unsafe_allow_html=True)
+    st.markdown("<div class='quant-subtitle'>Choix, optimisation et analyse de performance de stratégies de backtesting</div>", unsafe_allow_html=True)
+
     # --- 1) SIDEBAR : CHOIX D’ACTIF ---
     st.sidebar.subheader("Options (Quant A - Stratégies)")
 
@@ -334,18 +332,17 @@ def render():
     if selected_class == "ETF": selected_index = "S&P 500"
     elif selected_class == "Indices": selected_index = INDEX_MARKET_MAP.get(symbol, "S&P 500")
 
-    # --- 2) CHOIX DE LA PÉRIODE (CORRECTION DU BUG ICI) ---
+    # --- 2) CHOIX DE LA PÉRIODE (CORRECTION UI : AJOUT DE LA CARTE) ---
+    
     st.markdown("### Sélection de la période de backtest")
 
     with st.container():
         mode = st.radio("Méthode", ["Périodes fixes", "Sélection manuelle"], horizontal=True, label_visibility="collapsed")
         
-        # FIX 1: On normalise 'today' à minuit pile (00:00:00) pour stabiliser le cache et les calculs
         now = datetime.now()
         today = datetime(now.year, now.month, now.day)
 
         if mode == "Périodes fixes":
-            # Index 4 = 10 années par défaut
             period_label = st.selectbox("Période", ["6 mois", "1 année", "3 années", "5 années", "10 années", "Tout l'historique"], index=4)
             
             days_map = {
@@ -358,11 +355,9 @@ def render():
             else:
                 start = today - timedelta(days=days_map.get(period_label, 3650))
             
-            # FIX 2: Fin inclusive propre pour éviter les problèmes de "Dernière bougie manquante"
             end = today + timedelta(days=1)
 
         else:
-            # Mode manuel
             c1, c2 = st.columns(2)
             d_start = c1.date_input("Début", today - timedelta(days=365))
             d_end = c2.date_input("Fin", today)
@@ -370,6 +365,7 @@ def render():
             start = datetime.combine(d_start, datetime.min.time())
             end = datetime.combine(d_end, datetime.max.time())
             period_label = "Manuelle"
+
 
     # --- 3) CHARGEMENT ET SÉCURISATION DES DONNÉES ---
     try:
@@ -379,9 +375,6 @@ def render():
             st.warning("Aucune donnée disponible.")
             return
 
-        # FIX 3 : COPIE EXPLICITE. C'est CRUCIAL. 
-        # Si 'df_raw' vient du cache Streamlit, le modifier (via le filtre ci-dessous)
-        # sans le copier corrompt le cache pour les prochains affichages.
         df = df_raw.copy()
 
         df = filter_market_hours_and_weekends(
@@ -392,17 +385,14 @@ def render():
             interval="1d",
         )
 
-        # FIX 4 : Sécurité Index. Le backtest a besoin d'un DatetimeIndex trié.
         if not isinstance(df.index, pd.DatetimeIndex):
             df.index = pd.to_datetime(df.index)
         df = df.sort_index()
-        
-        # Debug optionnel : si ça reste plat, décommente la ligne suivante pour voir ce qui arrive au backtest
-        # st.write(f"DEBUG: {len(df)} lignes chargées. Du {df.index[0]} au {df.index[-1]}")
 
     except Exception as e:
         st.error(f"Erreur data : {e}")
         return
 
     # --- 4) RENDU STRATÉGIE ---
+    # Cette fonction crée déjà sa propre 'quant-card', donc les deux blocs seront maintenant uniformes.
     render_strategy_backtest_section(df, period_label)

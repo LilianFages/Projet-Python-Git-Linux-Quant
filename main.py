@@ -17,17 +17,17 @@ st.sidebar.markdown(
 page = st.sidebar.radio(
     "",
     [
-        "Quant A - Single Asset (Marché)",
-        "Quant A - Single Asset (Stratégies)",
+        "Quant A - Analyse Marché",
+        "Quant A - Stratégies & Backtest",
         "Quant B - Portfolio",
     ],
 )
 
 
-if page == "Quant A - Single Asset (Marché)":
+if page == "Quant A - Analyse Marché":
     quant_a_ui.render()
 
-elif page == "Quant A - Single Asset (Stratégies)":
+elif page == "Quant A - Stratégies & Backtest":
     quant_a_strategy_ui.render()
 
 elif page == "Quant B - Portfolio":

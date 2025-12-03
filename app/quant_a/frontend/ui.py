@@ -85,13 +85,35 @@ def apply_quant_a_theme():
             letter-spacing: 0.05em;
             text-transform: uppercase;
             color:#E5E5E5;
+            margin-bottom: 0.5rem; /* Réduire l'espace sous le titre */
         }
+        
         .quant-subtitle {
             font-size: 14px;
             color: #9FA4B1;
-            margin-bottom: 1rem;
+            margin-bottom: 1.5rem; /* Espace avant la première carte */
         }
 
+        /* Style des Cartes (Cadres) */
+        .quant-card {
+            background-color:#14161C;
+            border-radius:8px;
+            padding:1.5rem;
+            border:1px solid #1F232B;
+            margin-bottom: 1rem; /* Espace entre deux cartes */
+        }
+
+        /* FORCER LES TRAITS FINS (---) */
+        /* Cela remplace le gros séparateur Streamlit par un trait fin élégant */
+        hr {
+            margin-top: 1.5rem !important;
+            margin-bottom: 1.5rem !important;
+            border: 0 !important;
+            border-top: 1px solid #2B2F3B !important; /* Gris très sombre et fin */
+            opacity: 1 !important;
+        }
+        
+        /* Boutons */
         div.stButton > button:first-child {
             background-color:#2D8CFF;
             color:white;
@@ -102,13 +124,7 @@ def apply_quant_a_theme():
         }
         div.stButton > button:first-child:hover {
             background-color:#1C5FB8;
-        }
-        .quant-card {
-            background-color:#14161C;
-            border-radius:8px;
-            padding:1.2rem 1.5rem;
-            border:1px solid #1F232B;
-            margin-bottom:1rem;
+            border-color:#1C5FB8;
         }
         </style>
         """,
@@ -185,7 +201,7 @@ def render_asset_summary(df: pd.DataFrame) -> None:
     else:
         pct_change = float("nan")
 
-    st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
+    st.markdown("---")
     st.subheader("Résumé de l'actif")
 
     col1, col2, col3 = st.columns(3)
@@ -214,7 +230,6 @@ def render_asset_summary(df: pd.DataFrame) -> None:
         f"Volume : {vol_val:,.0f}" if pd.notna(vol_val) else f"Dernier point : {last_ts}"
     )
 
-    st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ============================================================
@@ -225,11 +240,10 @@ def render():
 
     apply_quant_a_theme()
 
-    st.markdown("<div class='quant-title'>Quant A — Single Asset Analysis</div>", unsafe_allow_html=True)
-    st.markdown("<div class='quant-subtitle'>Analyse et backtests sur un actif financier.</div>", unsafe_allow_html=True)
-
+    st.markdown("<div class='quant-title'>Quant A — ANALYSE MARCHE</div>", unsafe_allow_html=True)
+    st.markdown("<div class='quant-subtitle'>Vue détaillée de l'actif</div>", unsafe_allow_html=True)
     # --- Sidebar ---
-    st.sidebar.subheader("Options (Quant A)")
+    st.sidebar.subheader("Choix de l'actif")
 
     asset_classes = list(ASSET_CLASSES.keys())
     selected_class = st.sidebar.selectbox("Classe d'actifs", asset_classes, index=asset_classes.index(DEFAULT_ASSET_CLASS))
@@ -355,7 +369,7 @@ def render():
 
 
     # --- GRAPH PRIX ---
-    st.markdown("<div class='quant-card'>", unsafe_allow_html=True)
+    st.markdown("---")
     st.subheader("Graphique")
 
     price_chart = make_price_chart(
@@ -372,7 +386,6 @@ def render():
     else:
         st.info("Aucun graphique de prix à afficher.")
 
-    st.markdown("</div>", unsafe_allow_html=True)
 
 
 
