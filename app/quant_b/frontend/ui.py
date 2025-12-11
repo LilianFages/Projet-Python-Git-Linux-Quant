@@ -10,134 +10,272 @@ from app.quant_a.frontend.ui import apply_quant_a_theme
 # --- IMPORT BACKEND QUANT B ---
 from app.quant_b.backend.portfolio import build_portfolio_data
 
+# --- FONCTIONS CALLBACK (Gestion de l'état) ---
+
+def callback_equilibrer():
+    """Répartit le poids de manière égale entre tous les actifs présents."""
+    if 'portfolio_composition' in st.session_state:
+        assets = st.session_state['portfolio_composition']
+        count = len(assets)
+        if count > 0:
+            target_weight = 100.0 / count
+            for ticker in assets:
+                # 1. Mise à jour du stockage principal
+                st.session_state['portfolio_composition'][ticker] = target_weight / 100.0
+                # 2. Mise à jour forcée du widget visuel
+                st.session_state[f"weight_{ticker}"] = target_weight
+
+def add_asset_callback(asset_name):
+    """Ajoute un actif et initialise sa clé widget."""
+    if 'portfolio_composition' not in st.session_state:
+        st.session_state['portfolio_composition'] = {}
+    
+    if asset_name not in st.session_state['portfolio_composition']:
+        # Ajout au dictionnaire
+        st.session_state['portfolio_composition'][asset_name] = 0.0
+        # Initialisation immédiate de la clé du futur widget pour éviter les conflits
+        st.session_state[f"weight_{asset_name}"] = 0.0
+        st.toast(f"{asset_name} ajouté.")
+    else:
+        st.toast(f"{asset_name} est déjà présent.")
+
+def remove_asset_callback(ticker_to_remove):
+    """Supprime un actif et nettoie sa clé widget."""
+    if ticker_to_remove in st.session_state['portfolio_composition']:
+        del st.session_state['portfolio_composition'][ticker_to_remove]
+        # On nettoie aussi la clé du widget pour éviter les fantômes
+        key = f"weight_{ticker_to_remove}"
+        if key in st.session_state:
+            del st.session_state[key]
+
+# --- FONCTION PRINCIPALE ---
+
 def render():
-    """
-    Point d'entrée principal pour l'affichage du module Portfolio (Quant B).
-    """
-    # 1. Appliquer le thème visuel
     apply_quant_a_theme()
 
-    # 2. Titre et Introduction
     st.markdown("<div class='quant-title'>Quant B — Portfolio Management</div>", unsafe_allow_html=True)
-    st.markdown("<div class='quant-subtitle'>Simulation, optimisation et analyse de portefeuilles multi-actifs</div>", unsafe_allow_html=True)
+    st.markdown("<div class='quant-subtitle'>Construction multi-actifs et pondération</div>", unsafe_allow_html=True)
 
-    # --- SIDEBAR : SÉLECTION DES ACTIFS ---
-    st.sidebar.subheader("Univers d'investissement")
+    # Initialisation de base
+    if 'portfolio_composition' not in st.session_state:
+        st.session_state['portfolio_composition'] = {}
 
-    # A. Choix de la classe d'actifs
-    asset_class_filter = st.sidebar.selectbox(
-        "Filtrer par classe", 
-        ["Tous"] + list(ASSET_CLASSES.keys())
-    )
+    # =========================================================
+    # 1. SIDEBAR : SÉLECTEUR D'ACTIFS
+    # =========================================================
+    st.sidebar.subheader("Ajouter des actifs")
 
-    # B. Construction de la liste des symboles disponibles
-    available_assets = {}
-    if asset_class_filter == "Tous":
-        for cat, assets in ASSET_CLASSES.items():
-            if isinstance(assets, dict) and any(isinstance(v, dict) for v in assets.values()):
-                 for sub_cat, sub_assets in assets.items():
-                     available_assets.update(sub_assets)
+    # A. Filtres (Logique identique à précédemment)
+    asset_classes_list = ["Tous"] + list(ASSET_CLASSES.keys())
+    selected_class = st.sidebar.selectbox("Classe d'actifs", asset_classes_list)
+
+    current_catalog = {}
+    if selected_class == "Tous":
+        for cat, content in ASSET_CLASSES.items():
+            if cat == "Actions":
+                for index_name, assets in content.items():
+                    current_catalog.update(assets)
             else:
-                available_assets.update(assets)
-    else:
-        assets = ASSET_CLASSES[asset_class_filter]
-        if isinstance(assets, dict) and any(isinstance(v, dict) for v in assets.values()):
-             for sub_cat, sub_assets in assets.items():
-                 available_assets.update(sub_assets)
+                current_catalog.update(content)
+    elif selected_class == "Actions":
+        indices = list(ASSET_CLASSES["Actions"].keys())
+        selected_index = st.sidebar.selectbox("Indice", ["Tous"] + indices)
+        if selected_index == "Tous":
+            for ind in indices:
+                current_catalog.update(ASSET_CLASSES["Actions"][ind])
         else:
-            available_assets = assets
+            current_catalog = ASSET_CLASSES["Actions"][selected_index]
+    else:
+        current_catalog = ASSET_CLASSES[selected_class]
 
-    def format_func(ticker):
-        val = available_assets.get(ticker)
-        return val.get("name", ticker) if isinstance(val, dict) else ticker
+    def format_asset_label(ticker):
+        val = current_catalog.get(ticker)
+        name = ticker 
+        if isinstance(val, str):
+            name = val
+        elif isinstance(val, dict) and "name" in val:
+            name = val["name"]
+        return f"{name} ({ticker})"
 
-    # C. Le Multiselect
-    selected_tickers = st.sidebar.multiselect(
-        "Sélectionner les actifs (Min 2)",
-        options=list(available_assets.keys()),
-        default=["AAPL", "MSFT", "GOOGL"] if "AAPL" in available_assets else None,
-        format_func=format_func
-    )
+    if not current_catalog:
+        st.sidebar.warning("Aucun actif trouvé.")
+    else:
+        selected_asset = st.sidebar.selectbox(
+            "Choisir un actif", 
+            options=list(current_catalog.keys()), 
+            format_func=format_asset_label
+        )
 
-    # --- CORPS DE LA PAGE ---
+        # Utilisation d'un bouton avec callback pour l'ajout
+        st.sidebar.button(
+            "Ajouter au portefeuille", 
+            on_click=add_asset_callback, 
+            args=(selected_asset,)
+        )
+
+    # =========================================================
+    # 2. GESTION DU PORTEFEUILLE
+    # =========================================================
     
-    if not selected_tickers or len(selected_tickers) < 2:
-        st.warning("⚠️ Veuillez sélectionner au moins 2 actifs dans la barre latérale pour construire un portefeuille.")
+    st.subheader("Composition & Pondération")
+
+    current_assets = st.session_state['portfolio_composition']
+
+    if not current_assets:
+        st.info("Utilisez la barre latérale pour ajouter des actifs.")
         return
 
-    # D. Sélection de la période
-    st.subheader("Paramètres du Portefeuille")
-    col_date1, col_date2 = st.columns(2)
-    # Par défaut : 3 ans en arrière
-    default_start = datetime.now() - timedelta(days=365*3)
-    start_date = col_date1.date_input("Date de début", default_start)
-    end_date = col_date2.date_input("Date de fin", datetime.now())
+    st.markdown("---")
+    
+    h1, h2, h3 = st.columns([3, 2, 1])
+    h1.markdown("**Actif**")
+    h2.markdown("**Poids (%)**")
+    h3.markdown("**Action**")
 
-    # E. Bouton de chargement et Calculs
-    if st.button("Générer le Portefeuille", type="primary"):
-        with st.spinner(f"Chargement des données pour {len(selected_tickers)} actifs..."):
+    # On prépare le calcul du total
+    total_weight = 0.0
+    
+    # On itère sur une copie des clés pour éviter les erreurs si modification
+    for ticker in list(current_assets.keys()):
+        c1, c2, c3 = st.columns([3, 2, 1])
+        c1.markdown(f"#### {ticker}")
+        
+        # --- LOGIQUE ROBUSTE POUR LE WIDGET ---
+        widget_key = f"weight_{ticker}"
+        
+        # 1. Si la clé n'existe pas dans le session_state (ex: rechargement page), 
+        # on l'initialise avec la valeur du dictionnaire
+        if widget_key not in st.session_state:
+            st.session_state[widget_key] = current_assets[ticker] * 100.0
             
-            # 1. Appel au Backend
-            df_portfolio = build_portfolio_data(selected_tickers, start_date, end_date)
-            
-            if df_portfolio.empty:
-                st.error("Impossible de récupérer les données (données vides ou erreur API).")
-                return
-
-            # Sauvegarde en session pour ne pas perdre les données si on interagit ailleurs
-            st.session_state['portfolio_df'] = df_portfolio
-            st.success("Données chargées avec succès !")
-
-    # F. Affichage des Résultats (si les données existent en session)
-    if 'portfolio_df' in st.session_state:
-        df = st.session_state['portfolio_df']
-
-        # --- CORRECTION LÉGENDE ---
-        # Si les colonnes sont complexes (tuples), on les simplifie
-        # Cela change [('AAPL', 'AAPL')] en ['AAPL']
-        if isinstance(df.columns[0], tuple):
-             df.columns = [c[0] for c in df.columns]
-        # --------------------------
-        
-        st.markdown("---")
-        st.subheader("Comparaison des Performances (Base 100)")
-        
-        # 1. Normalisation (Base 100)
-        df_normalized = (df / df.iloc[0]) * 100
-        
-        # 2. Transformation pour Altair
-        df_reset = df_normalized.reset_index()
-        
-        # --- CORRECTION ICI ---
-        # On récupère la liste des colonnes
-        cols = list(df_reset.columns)
-        # On renomme FORCEIMENT la première colonne (l'index temporel) en "Date"
-        cols[0] = "Date"
-        # On réapplique les noms au DataFrame
-        df_reset.columns = cols
-        # ----------------------
-
-        # Maintenant "Date" existe forcément
-        df_melted = df_reset.melt(
-            id_vars=["Date"], 
-            var_name="Actif", 
-            value_name="Performance (Base 100)"
+        # 2. Création du widget SANS 'value=', car 'key' suffit
+        new_val = c2.number_input(
+            "%", 
+            min_value=0.0, max_value=100.0, 
+            step=5.0,
+            key=widget_key, # La valeur est lue depuis st.session_state[widget_key]
+            label_visibility="collapsed"
         )
         
-        # 3. Graphique Comparatif
-        chart = alt.Chart(df_melted).mark_line().encode(
-            x=alt.X("Date:T", title="Date"),
-            y=alt.Y("Performance (Base 100):Q", title="Performance relative"),
-            color=alt.Color("Actif:N", title="Actifs"),
-            tooltip=[
-                alt.Tooltip("Date:T", format="%d/%m/%Y"),
-                alt.Tooltip("Actif:N"),
-                alt.Tooltip("Performance (Base 100):Q", format=".1f")
-            ]
-        ).interactive()
-        
-        st.altair_chart(chart, use_container_width=True)
+        # 3. Synchronisation inverse : Widget -> Dictionnaire
+        st.session_state['portfolio_composition'][ticker] = new_val / 100.0
+        total_weight += new_val
 
-        # 4. Aperçu des corrélations
-        with st.expander("Voir la matrice de corrélation brute"):
-            st.dataframe(df.pct_change().corr().style.background_gradient(cmap="coolwarm", axis=None))
+        # Bouton suppression avec callback
+        c3.button("Suppr.", key=f"del_{ticker}", on_click=remove_asset_callback, args=(ticker,))
+
+    #  Validation du Total
+    st.markdown("---")
+    col_tot1, col_tot2 = st.columns([3, 1])
+    
+    # 1. Feedback visuel (Message)
+    if abs(total_weight - 100.0) > 0.01:
+        col_tot1.warning(f"Total des poids : {total_weight:.1f}% (Doit être 100%)")
+        is_valid = False
+    else:
+        col_tot1.success(f"Total : {total_weight:.0f}%")
+        is_valid = True
+
+    # 2. Bouton d'équilibrage (TOUJOURS visible maintenant)
+    # Cela permet de cliquer dessus juste après avoir ajouté un actif à 0%
+    col_tot2.button("Équilibrer", on_click=callback_equilibrer)
+
+    # =========================================================
+    # 3. GÉNÉRATION
+    # =========================================================
+    
+    st.subheader("Performance Historique")
+    col_date1, col_date2 = st.columns(2)
+    start_date = col_date1.date_input("Date début", datetime.now() - timedelta(days=365*2))
+    end_date = col_date2.date_input("Date fin", datetime.now())
+
+    if st.button("Simuler le Portefeuille", disabled=not is_valid, type="primary"):
+        with st.spinner("Simulation en cours..."):
+            df_assets, s_portfolio = build_portfolio_data(
+                st.session_state['portfolio_composition'], 
+                start_date, end_date
+            )
+            
+            if df_assets.empty:
+                st.error("Erreur : Données vides.")
+                return
+
+            st.session_state['result_assets'] = df_assets
+            st.session_state['result_portfolio'] = s_portfolio
+
+    if 'result_assets' in st.session_state and 'result_portfolio' in st.session_state:
+        df_assets = st.session_state['result_assets']
+        s_portfolio = st.session_state['result_portfolio']
+
+        # =========================================================
+        # NETTOYAGE DES DONNÉES (Fix Double Noms)
+        # =========================================================
+        # Si les colonnes sont des tuples (ex: ('AAPL', 'AAPL')), on ne garde que le premier élément
+        if isinstance(df_assets.columns[0], tuple):
+             df_assets.columns = [c[0] for c in df_assets.columns]
+
+        # =========================================================
+        # PRÉPARATION GRAPHIQUE
+        # =========================================================
+        
+        # 1. Le Portefeuille
+        df_port = s_portfolio.reset_index(name="Price")
+        df_port['Type'] = 'Portefeuille Global'
+        
+        # Force le nom 'Date' pour la première colonne
+        cols_port = list(df_port.columns)
+        cols_port[0] = "Date"
+        df_port.columns = cols_port
+
+        # 2. Les Actifs individuels
+        df_indiv = df_assets.reset_index()
+        cols_indiv = list(df_indiv.columns)
+        cols_indiv[0] = "Date"
+        df_indiv.columns = cols_indiv
+        
+        df_indiv = df_indiv.melt(id_vars="Date", var_name="Type", value_name="Price")
+        
+        # 3. Combinaison
+        df_all = pd.concat([df_port, df_indiv])
+
+        # =========================================================
+        # COULEURS PERSONNALISÉES (Pour avoir le Blanc en légende)
+        # =========================================================
+        
+        # On récupère la liste des actifs
+        asset_names = list(df_assets.columns)
+        
+        # On définit l'ordre : Portefeuille en premier, puis les actifs
+        domain = ['Portefeuille Global'] + asset_names
+        
+        # On définit les couleurs : Blanc pour le premier, couleurs standards pour les autres
+        # Palette de couleurs "Cycle" standard
+        std_colors = ['#377eb8', '#e41a1c', '#4daf4a', '#984ea3', '#ff7f00', '#ffff33', '#a65628', '#f781bf']
+        range_colors = ['#FFFFFF'] + std_colors[:len(asset_names)]
+
+        # Graphique
+        chart = alt.Chart(df_all).mark_line().encode(
+            x=alt.X("Date:T", title=None),
+            y=alt.Y("Price:Q", title="Performance (Base 100)"),
+            
+            # Gestion de la couleur via l'échelle personnalisée
+            color=alt.Color(
+                "Type:N", 
+                scale=alt.Scale(domain=domain, range=range_colors),
+                title="Légende"
+            ),
+            
+            # Gestion de l'épaisseur (Gras pour Portefeuille, fin pour le reste)
+            strokeWidth=alt.condition(
+                alt.datum.Type == 'Portefeuille Global', 
+                alt.value(4), 
+                alt.value(1.5)
+            ),
+            
+            tooltip=["Date:T", "Type", alt.Tooltip("Price", format=".1f")]
+        ).interactive()
+
+        st.altair_chart(chart, use_container_width=True)
+        
+        perf_total = (s_portfolio.iloc[-1] / s_portfolio.iloc[0]) - 1
+        st.metric("Performance Totale Portefeuille", f"{perf_total:+.2%}")
