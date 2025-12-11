@@ -245,38 +245,47 @@ def render():
         st.markdown("---")
         st.subheader("Backtest de Stratégie (Sur le Portefeuille Global)")
 
-        # Préparation des données (La courbe du portefeuille devient l'actif à trader)
+        # Préparation des données
         df_strat_input = s_portfolio.to_frame(name='close')
         
         # LAYOUT: Colonnes pour Inputs
-        c_strat, c_params, c_btn = st.columns([1, 2, 1], vertical_alignment="bottom", gap="medium")
+        # On ajoute une colonne pour le choix de la métrique cible
+        c_strat, c_metric, c_params, c_btn = st.columns([1, 1, 2, 1], vertical_alignment="bottom", gap="small")
         
         with c_strat:
             strategy_name = st.selectbox("Stratégie", ["SMA Crossover", "RSI Strategy", "Momentum"])
+
+        # NOUVEAU : Choix de la métrique d'optimisation
+        with c_metric:
+            target_metric = st.selectbox(
+                "Objectif Opti.", 
+                ["Sharpe Ratio", "Total Return", "Max Drawdown", "Win Rate"],
+                help="Métrique à maximiser lors de l'optimisation des paramètres"
+            )
             
-            # --- BOUTON OPTIMISATION PARAMÈTRES (Appel Backend partagé) ---
-            # Suppression du smiley dans le bouton
+            # BOUTON D'OPTIMISATION
             if st.button("Optimiser Paramètres"):
-                with st.spinner("Recherche des meilleurs paramètres..."):
+                with st.spinner(f"Optimisation ({target_metric})..."):
                     best_p = {}
                     best_score = 0
                     
-                    # On utilise les fonctions importées de Quant A
-                    # On maximise le Sharpe Ratio par défaut pour le portefeuille
+                    # Appel au backend partagé avec la métrique choisie
                     if strategy_name == "SMA Crossover":
-                        best_p, best_score = optimize_sma(df_strat_input, 10000, "Sharpe Ratio")
+                        best_p, best_score = optimize_sma(df_strat_input, 10000, target_metric)
                     elif strategy_name == "RSI Strategy":
-                        best_p, best_score = optimize_rsi(df_strat_input, 10000, "Sharpe Ratio")
+                        best_p, best_score = optimize_rsi(df_strat_input, 10000, target_metric)
                     elif strategy_name == "Momentum":
-                        best_p, best_score = optimize_momentum(df_strat_input, 10000, "Sharpe Ratio")
+                        best_p, best_score = optimize_momentum(df_strat_input, 10000, target_metric)
                     
                     if best_p:
                         st.session_state['opt_params'] = best_p
-                        st.toast(f"Optimisé ! Sharpe: {best_score:.2f}")
+                        # Affichage propre du score selon le type
+                        score_fmt = f"{best_score:.2f}" if target_metric == "Sharpe Ratio" else f"{best_score*100:.2f}%"
+                        st.toast(f"Optimisé ! {target_metric}: {score_fmt}")
         
         # Récupération des paramètres optimisés
         defaults = st.session_state.get('opt_params', {})
-        # Sécurité : on vide si le type ne correspond pas à la stratégie choisie
+        # Sécurité types
         if defaults.get('type') != 'sma_crossover' and strategy_name == "SMA Crossover": defaults = {}
         if defaults.get('type') != 'rsi' and strategy_name == "RSI Strategy": defaults = {}
         if defaults.get('type') != 'momentum' and strategy_name == "Momentum": defaults = {}
