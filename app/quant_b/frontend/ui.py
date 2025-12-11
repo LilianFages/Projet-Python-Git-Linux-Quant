@@ -253,71 +253,87 @@ def render():
         st.metric("Performance Totale Portefeuille", f"{perf_total:+.2%}")
 
         # ---------------------------------------------------------
-        # 2. BACKTEST DE STRATÉGIE
+        # 2. BACKTEST DE STRATÉGIE (Layout Optimisé)
         # ---------------------------------------------------------
         
         st.markdown("---")
         st.subheader("Backtest de Stratégie (Sur le Portefeuille Global)")
-        st.markdown("Appliquez vos stratégies (SMA, RSI...) directement sur la courbe synthétique de votre portefeuille.")
 
         # A. Préparation des données
         df_strat_input = s_portfolio.to_frame(name='close')
         
-        # B. Sélection et Paramètres
-        # CORRECTION ALIGNEMENT : on utilise vertical_alignment="bottom"
-        # Cela plaque le contenu (le bouton) en bas de la colonne pour s'aligner avec les inputs
-        strat_col1, strat_col2 = st.columns([1, 1], vertical_alignment="bottom", gap="medium")
+        # B. ZONE DE CONTRÔLES (Tout sur une ligne horizontale)
+        # Col 1 : Choix Stratégie | Col 2 : Paramètres | Col 3 : Bouton
+        c_strat, c_params, c_btn = st.columns([1, 2, 1], vertical_alignment="bottom", gap="medium")
         
-        with strat_col1:
-            strategy_name = st.selectbox("Stratégie à appliquer", ["SMA Crossover", "RSI Strategy", "Momentum"])
-            params = {"initial_cash": 10000}
+        with c_strat:
+            strategy_name = st.selectbox("Stratégie", ["SMA Crossover", "RSI Strategy", "Momentum"])
             
+        params = {"initial_cash": 10000}
+
+        with c_params:
+            # Affichage dynamique des paramètres sur une ligne interne
             if strategy_name == "SMA Crossover":
+                c_p1, c_p2 = st.columns(2)
                 params["type"] = "sma_crossover"
-                params["short_window"] = st.number_input("SMA Courte", 10, 100, 20)
-                params["long_window"] = st.number_input("SMA Longue", 20, 200, 50)
+                params["short_window"] = c_p1.number_input("SMA Courte", 10, 100, 20)
+                params["long_window"] = c_p2.number_input("SMA Longue", 20, 200, 50)
             elif strategy_name == "RSI Strategy":
+                c_p1, c_p2, c_p3 = st.columns(3)
                 params["type"] = "rsi"
-                params["window"] = st.number_input("Période RSI", 5, 30, 14)
-                params["oversold"] = st.number_input("Seuil Achat (<)", 10, 50, 30)
-                params["overbought"] = st.number_input("Seuil Vente (>)", 50, 90, 70)
+                params["window"] = c_p1.number_input("Période", 5, 30, 14)
+                params["oversold"] = c_p2.number_input("S. Achat", 10, 50, 30)
+                params["overbought"] = c_p3.number_input("S. Vente", 50, 90, 70)
             elif strategy_name == "Momentum":
                 params["type"] = "momentum"
                 params["lookback"] = st.number_input("Lookback (Jours)", 5, 200, 20)
 
-        # C. Exécution
-        with strat_col2:
-            # Le bouton est maintenant aligné en bas grâce au paramètre de colonnes
-            # use_container_width=True le rend plus large et esthétique
-            if st.button("Lancer le Backtest Stratégique", type="primary", use_container_width=True):
+        with c_btn:
+            if st.button("Lancer l'analyse", type="primary", use_container_width=True):
                 try:
                     result = run_strategy(df_strat_input, params)
                     metrics = calculate_metrics(result.equity_curve, result.position)
                     
-                    st.success(f"Backtest terminé : {strategy_name}")
-                    
-                    # Métriques
-                    m1, m2, m3, m4 = st.columns(4)
-                    m1.metric("Rendement Stratégie", f"{metrics.total_return:+.2%}")
-                    m2.metric("Sharpe Ratio", f"{metrics.sharpe_ratio:.2f}")
-                    m3.metric("Max Drawdown", f"{metrics.max_drawdown:.2%}")
-                    m4.metric("Win Rate", f"{metrics.win_rate:.2%}")
-                    
-                    # Graphique
-                    df_res = pd.DataFrame({
-                        "Date": result.equity_curve.index,
-                        "Portefeuille (Passif)": df_strat_input['close'] / df_strat_input['close'].iloc[0] * 100,
-                        "Portefeuille (Actif)": result.equity_curve / result.equity_curve.iloc[0] * 100
-                    }).melt('Date', var_name='Méthode', value_name='Valeur')
-                    
-                    chart_strat = alt.Chart(df_res).mark_line().encode(
-                        x='Date:T',
-                        y=alt.Y('Valeur:Q', title="Performance Base 100"),
-                        color=alt.Color('Méthode:N', scale=alt.Scale(range=['#FFFFFF', '#00C805'])),
-                        tooltip=['Date:T', 'Méthode', alt.Tooltip('Valeur', format='.1f')]
-                    ).interactive()
-                    
-                    st.altair_chart(chart_strat, use_container_width=True)
-                    
+                    # Sauvegarde en session
+                    st.session_state['bt_res'] = {
+                        "result": result, 
+                        "metrics": metrics,
+                        "data": df_strat_input,
+                        "name": strategy_name
+                    }
                 except Exception as e:
-                    st.error(f"Erreur durant le backtest : {e}")
+                    st.error(f"Erreur : {e}")
+
+        # C. AFFICHAGE DES RÉSULTATS (Pleine Largeur)
+        if 'bt_res' in st.session_state:
+            res = st.session_state['bt_res']
+            
+            # 1. LE GRAPHIQUE (EN PREMIER et LARGE)
+            st.markdown("##### Visualisation de la performance")
+            
+            df_res = pd.DataFrame({
+                "Date": res['result'].equity_curve.index,
+                "Portefeuille Passif (Buy & Hold)": res['data']['close'] / res['data']['close'].iloc[0] * 100,
+                "Portefeuille Actif (Stratégie)": res['result'].equity_curve / res['result'].equity_curve.iloc[0] * 100
+            }).melt('Date', var_name='Méthode', value_name='Valeur')
+            
+            chart_strat = alt.Chart(df_res).mark_line().encode(
+                x='Date:T',
+                y=alt.Y('Valeur:Q', title="Base 100"),
+                color=alt.Color('Méthode:N', scale=alt.Scale(range=['#FFFFFF', '#00C805']), title=None), # Blanc vs Vert
+                strokeWidth=alt.condition(alt.datum.Méthode == 'Portefeuille Actif (Stratégie)', alt.value(3), alt.value(1.5)),
+                tooltip=['Date:T', 'Méthode', alt.Tooltip('Valeur', format='.1f')]
+            ).properties(
+                height=450 # Hauteur confortable
+            ).interactive()
+            
+            st.altair_chart(chart_strat, use_container_width=True)
+
+            # 2. LES MÉTRIQUES (EN DESSOUS)
+            st.markdown(f"##### Résultats détaillés : {res['name']}")
+            m1, m2, m3, m4 = st.columns(4)
+            # Style visuel style "kpi"
+            m1.metric("Rendement Stratégie", f"{res['metrics'].total_return:+.2%}", delta_color="normal")
+            m2.metric("Sharpe Ratio", f"{res['metrics'].sharpe_ratio:.2f}")
+            m3.metric("Max Drawdown", f"{res['metrics'].max_drawdown:.2%}", delta_color="inverse") # Rouge si bas
+            m4.metric("Win Rate", f"{res['metrics'].win_rate:.2%}")
