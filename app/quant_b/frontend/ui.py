@@ -7,6 +7,10 @@ from datetime import datetime, timedelta
 from app.common.config import ASSET_CLASSES
 from app.quant_a.frontend.ui import apply_quant_a_theme
 
+# --- IMPORTS BACKEND QUANT A (Réutilisation) ---
+from app.quant_a.backend.strategies import run_strategy
+from app.quant_a.backend.metrics import calculate_metrics
+
 # --- IMPORT BACKEND QUANT B ---
 from app.quant_b.backend.portfolio import build_portfolio_data
 
@@ -203,75 +207,43 @@ def render():
             st.session_state['result_assets'] = df_assets
             st.session_state['result_portfolio'] = s_portfolio
 
+    # Affichage Résultats (Si les données existent)
     if 'result_assets' in st.session_state and 'result_portfolio' in st.session_state:
         df_assets = st.session_state['result_assets']
         s_portfolio = st.session_state['result_portfolio']
 
-        # =========================================================
-        # NETTOYAGE DES DONNÉES (Fix Double Noms)
-        # =========================================================
-        # Si les colonnes sont des tuples (ex: ('AAPL', 'AAPL')), on ne garde que le premier élément
+        # ---------------------------------------------------------
+        # 1. NETTOYAGE & GRAPHIQUE HISTORIQUE
+        # ---------------------------------------------------------
         if isinstance(df_assets.columns[0], tuple):
              df_assets.columns = [c[0] for c in df_assets.columns]
 
-        # =========================================================
-        # PRÉPARATION GRAPHIQUE
-        # =========================================================
-        
-        # 1. Le Portefeuille
+        # Préparation Graphique
         df_port = s_portfolio.reset_index(name="Price")
         df_port['Type'] = 'Portefeuille Global'
-        
-        # Force le nom 'Date' pour la première colonne
         cols_port = list(df_port.columns)
         cols_port[0] = "Date"
         df_port.columns = cols_port
 
-        # 2. Les Actifs individuels
         df_indiv = df_assets.reset_index()
         cols_indiv = list(df_indiv.columns)
         cols_indiv[0] = "Date"
         df_indiv.columns = cols_indiv
-        
         df_indiv = df_indiv.melt(id_vars="Date", var_name="Type", value_name="Price")
         
-        # 3. Combinaison
         df_all = pd.concat([df_port, df_indiv])
 
-        # =========================================================
-        # COULEURS PERSONNALISÉES (Pour avoir le Blanc en légende)
-        # =========================================================
-        
-        # On récupère la liste des actifs
+        # Couleurs
         asset_names = list(df_assets.columns)
-        
-        # On définit l'ordre : Portefeuille en premier, puis les actifs
         domain = ['Portefeuille Global'] + asset_names
-        
-        # On définit les couleurs : Blanc pour le premier, couleurs standards pour les autres
-        # Palette de couleurs "Cycle" standard
         std_colors = ['#377eb8', '#e41a1c', '#4daf4a', '#984ea3', '#ff7f00', '#ffff33', '#a65628', '#f781bf']
         range_colors = ['#FFFFFF'] + std_colors[:len(asset_names)]
 
-        # Graphique
         chart = alt.Chart(df_all).mark_line().encode(
             x=alt.X("Date:T", title=None),
             y=alt.Y("Price:Q", title="Performance (Base 100)"),
-            
-            # Gestion de la couleur via l'échelle personnalisée
-            color=alt.Color(
-                "Type:N", 
-                scale=alt.Scale(domain=domain, range=range_colors),
-                title="Légende"
-            ),
-            
-            # Gestion de l'épaisseur (Gras pour Portefeuille, fin pour le reste)
-            strokeWidth=alt.condition(
-                alt.datum.Type == 'Portefeuille Global', 
-                alt.value(4), 
-                alt.value(1.5)
-            ),
-            
+            color=alt.Color("Type:N", scale=alt.Scale(domain=domain, range=range_colors), title="Légende"),
+            strokeWidth=alt.condition(alt.datum.Type == 'Portefeuille Global', alt.value(4), alt.value(1.5)),
             tooltip=["Date:T", "Type", alt.Tooltip("Price", format=".1f")]
         ).interactive()
 
@@ -279,3 +251,73 @@ def render():
         
         perf_total = (s_portfolio.iloc[-1] / s_portfolio.iloc[0]) - 1
         st.metric("Performance Totale Portefeuille", f"{perf_total:+.2%}")
+
+        # ---------------------------------------------------------
+        # 2. BACKTEST DE STRATÉGIE
+        # ---------------------------------------------------------
+        
+        st.markdown("---")
+        st.subheader("Backtest de Stratégie (Sur le Portefeuille Global)")
+        st.markdown("Appliquez vos stratégies (SMA, RSI...) directement sur la courbe synthétique de votre portefeuille.")
+
+        # A. Préparation des données
+        df_strat_input = s_portfolio.to_frame(name='close')
+        
+        # B. Sélection et Paramètres
+        # CORRECTION ALIGNEMENT : on utilise vertical_alignment="bottom"
+        # Cela plaque le contenu (le bouton) en bas de la colonne pour s'aligner avec les inputs
+        strat_col1, strat_col2 = st.columns([1, 1], vertical_alignment="bottom", gap="medium")
+        
+        with strat_col1:
+            strategy_name = st.selectbox("Stratégie à appliquer", ["SMA Crossover", "RSI Strategy", "Momentum"])
+            params = {"initial_cash": 10000}
+            
+            if strategy_name == "SMA Crossover":
+                params["type"] = "sma_crossover"
+                params["short_window"] = st.number_input("SMA Courte", 10, 100, 20)
+                params["long_window"] = st.number_input("SMA Longue", 20, 200, 50)
+            elif strategy_name == "RSI Strategy":
+                params["type"] = "rsi"
+                params["window"] = st.number_input("Période RSI", 5, 30, 14)
+                params["oversold"] = st.number_input("Seuil Achat (<)", 10, 50, 30)
+                params["overbought"] = st.number_input("Seuil Vente (>)", 50, 90, 70)
+            elif strategy_name == "Momentum":
+                params["type"] = "momentum"
+                params["lookback"] = st.number_input("Lookback (Jours)", 5, 200, 20)
+
+        # C. Exécution
+        with strat_col2:
+            # Le bouton est maintenant aligné en bas grâce au paramètre de colonnes
+            # use_container_width=True le rend plus large et esthétique
+            if st.button("Lancer le Backtest Stratégique", type="primary", use_container_width=True):
+                try:
+                    result = run_strategy(df_strat_input, params)
+                    metrics = calculate_metrics(result.equity_curve, result.position)
+                    
+                    st.success(f"Backtest terminé : {strategy_name}")
+                    
+                    # Métriques
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("Rendement Stratégie", f"{metrics.total_return:+.2%}")
+                    m2.metric("Sharpe Ratio", f"{metrics.sharpe_ratio:.2f}")
+                    m3.metric("Max Drawdown", f"{metrics.max_drawdown:.2%}")
+                    m4.metric("Win Rate", f"{metrics.win_rate:.2%}")
+                    
+                    # Graphique
+                    df_res = pd.DataFrame({
+                        "Date": result.equity_curve.index,
+                        "Portefeuille (Passif)": df_strat_input['close'] / df_strat_input['close'].iloc[0] * 100,
+                        "Portefeuille (Actif)": result.equity_curve / result.equity_curve.iloc[0] * 100
+                    }).melt('Date', var_name='Méthode', value_name='Valeur')
+                    
+                    chart_strat = alt.Chart(df_res).mark_line().encode(
+                        x='Date:T',
+                        y=alt.Y('Valeur:Q', title="Performance Base 100"),
+                        color=alt.Color('Méthode:N', scale=alt.Scale(range=['#FFFFFF', '#00C805'])),
+                        tooltip=['Date:T', 'Méthode', alt.Tooltip('Valeur', format='.1f')]
+                    ).interactive()
+                    
+                    st.altair_chart(chart_strat, use_container_width=True)
+                    
+                except Exception as e:
+                    st.error(f"Erreur durant le backtest : {e}")
