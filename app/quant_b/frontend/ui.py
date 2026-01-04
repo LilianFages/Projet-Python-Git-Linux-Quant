@@ -22,10 +22,26 @@ from app.quant_a.backend.strategies import run_strategy
 from app.quant_a.backend.metrics import calculate_metrics
 from app.quant_a.backend.optimization import optimize_sma, optimize_rsi, optimize_momentum
 
+# --- NEW: Persist portfolio state for daily report (Option B) ---
+from app.common.portfolio_state import save_portfolio_state
+
 
 # =========================================================
 # CALLBACKS (Gestion État Interface)
 # =========================================================
+
+def _persist_portfolio_state(meta: dict | None = None) -> None:
+    """
+    Sauvegarde l'état du portefeuille pour le rapport quotidien.
+    Wrapper safe: ne doit jamais faire planter l'UI.
+    """
+    try:
+        if "portfolio_composition" in st.session_state:
+            save_portfolio_state(st.session_state["portfolio_composition"], meta=meta or {"source": "quant_b_ui"})
+    except Exception:
+        # On ignore volontairement toute erreur de persistance
+        pass
+
 
 def callback_equilibrer():
     """Répartit les poids de manière égale."""
@@ -38,6 +54,8 @@ def callback_equilibrer():
                 st.session_state["portfolio_composition"][ticker] = target_weight / 100.0
                 st.session_state[f"weight_{ticker}"] = target_weight
 
+            _persist_portfolio_state(meta={"source": "quant_b_ui", "event": "equal_weight"})
+
 
 def add_asset_callback(asset_name):
     """Ajoute un actif au panier."""
@@ -48,6 +66,7 @@ def add_asset_callback(asset_name):
         st.session_state["portfolio_composition"][asset_name] = 0.0
         st.session_state[f"weight_{asset_name}"] = 0.0
         st.toast(f"{asset_name} ajouté.")
+        _persist_portfolio_state(meta={"source": "quant_b_ui", "event": "add_asset"})
     else:
         st.toast(f"{asset_name} est déjà présent.")
 
@@ -59,6 +78,8 @@ def remove_asset_callback(ticker_to_remove):
         key = f"weight_{ticker_to_remove}"
         if key in st.session_state:
             del st.session_state[key]
+
+        _persist_portfolio_state(meta={"source": "quant_b_ui", "event": "remove_asset"})
 
 
 # =========================================================
@@ -169,6 +190,9 @@ def render():
                             st.session_state["portfolio_composition"][t] = float(w)
                             st.session_state[f"weight_{t}"] = float(w) * 100.0
 
+                    # Persist (Option B): state portfolio après optimisation
+                    _persist_portfolio_state(meta={"source": "quant_b_ui", "event": "markowitz_opt", "objective": obj})
+
                     st.rerun()
                 else:
                     st.error("Pas assez de données pour optimiser.")
@@ -241,6 +265,16 @@ def render():
             if df_assets is None or df_assets.empty:
                 st.error("Erreur : Données vides.")
                 return
+
+            # Persist (Option B): state portfolio après simulation (cas le plus important)
+            _persist_portfolio_state(
+                meta={
+                    "source": "quant_b_ui",
+                    "event": "simulate",
+                    "start_date": str(start_date),
+                    "end_date": str(end_date),
+                }
+            )
 
             st.session_state["result_prices"] = df_prices
             st.session_state["result_assets"] = df_assets
@@ -413,7 +447,7 @@ def render():
                 v_short = int(defaults.get("short_window", 20))
                 v_long = int(defaults.get("long_window", 50))
                 params["short_window"] = c_p1.number_input("SMA Courte", 5, 100, v_short)
-                # IMPORTANT: borne longue étendue (cohérence avec optimisateur)
+                # borne longue étendue (cohérence avec optimisateur)
                 params["long_window"] = c_p2.number_input("SMA Longue", 10, 300, v_long)
 
             elif strategy_name == "RSI Strategy":
@@ -425,7 +459,7 @@ def render():
 
             elif strategy_name == "Momentum":
                 params["type"] = "momentum"
-                # IMPORTANT: borne lookback étendue (cohérence avec optimiseur)
+                # borne lookback étendue (cohérence avec optimiseur)
                 params["lookback"] = st.number_input("Lookback", 5, 252, int(defaults.get("lookback", 20)))
 
         with c_btn:

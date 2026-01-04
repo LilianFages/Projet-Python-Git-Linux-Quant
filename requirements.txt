@@ -8,3 +8,4 @@ scipy
 pytz
 statsmodels
 streamlit-autorefresh
+tabulate
