@@ -309,20 +309,23 @@ def render():
         selected_index = None
         symbols_dict = ASSET_CLASSES[selected_class]
 
-    options = list(symbols_dict.items())
+    options = list(symbols_dict.items())  # [(symbol, label_or_dict), ...]
 
     def format_option(opt):
-        key, val = opt
-        if isinstance(val, dict):
-            return val.get("name", key)
-        return str(val)
+        sym, meta = opt
+        if isinstance(meta, dict):
+            return meta.get("name", sym)
+        return str(meta)
+
 
     selected_pair = st.sidebar.selectbox(
         "Choisir un actif",
         options,
         format_func=format_option,
     )
-    symbol = selected_pair[0]
+    
+    # Défensif : garantit une string ticker
+    symbol = selected_pair[0] if isinstance(selected_pair, tuple) else str(selected_pair)
 
     if selected_class == "ETF":
         selected_index = "S&P 500"
