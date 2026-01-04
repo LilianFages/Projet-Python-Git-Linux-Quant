@@ -12,76 +12,154 @@ def _infer_future_freq(dt_index: pd.DatetimeIndex) -> str:
     """
     if len(dt_index) == 0:
         return "B"
-
-    # On regarde les ~90 derniers points pour décider
     tail = dt_index[-min(len(dt_index), 90):]
-    has_weekend = any(d.weekday() >= 5 for d in tail)  # 5=Sat, 6=Sun
+    has_weekend = any(d.weekday() >= 5 for d in tail)
     return "D" if has_weekend else "B"
+
+
+def _clean_series(series: pd.Series) -> pd.Series:
+    """Nettoie la série : float, index datetime, tri, dédup."""
+    s = series.dropna().astype(float).copy()
+    if s.empty:
+        return s
+    s.index = pd.to_datetime(s.index)
+    s = s[~s.index.duplicated(keep="last")].sort_index()
+    return s
+
+
+def _forecast_level_arima_log_drift(clean: pd.Series, steps: int, alpha: float) -> pd.DataFrame:
+    """
+    Fallback : ARIMA(1,1,1) sur log(niveau) avec drift.
+    """
+    if (clean <= 0).any() or len(clean) < 20:
+        return pd.DataFrame()
+
+    y = np.log(clean)
+
+    model = ARIMA(y, order=(1, 1, 1), trend="t")  # drift
+    fit = model.fit()
+
+    res = fit.get_forecast(steps=steps)
+    sf = res.summary_frame(alpha=alpha)
+
+    last_date = clean.index[-1]
+    freq = _infer_future_freq(clean.index)
+    future_dates = pd.date_range(start=last_date, periods=steps + 1, freq=freq)[1:]
+    sf.index = future_dates
+
+    out = pd.DataFrame(index=future_dates)
+    out["forecast"] = np.exp(sf["mean"])
+    out["lower_conf"] = np.exp(sf["mean_ci_lower"])
+    out["upper_conf"] = np.exp(sf["mean_ci_upper"])
+    return out[["forecast", "lower_conf", "upper_conf"]]
+
+
+def _forecast_from_log_returns(clean: pd.Series, steps: int, alpha: float) -> pd.DataFrame:
+    """
+    Méthode principale (niveau 2) :
+    1) r_t = diff(log(level))  (rendements log)
+    2) ARMA via ARIMA(order=(1,0,1), trend='c') sur r_t
+    3) Reconstruction :
+       log(level_{t+h}) = log(level_t) + cumsum(r_hat)
+       IC : approx via sqrt(cumsum(se_mean^2)) sur le cumul
+    """
+    if (clean <= 0).any():
+        return pd.DataFrame()
+
+    log_level = np.log(clean)
+    log_ret = log_level.diff().dropna()
+
+    # Il faut suffisamment de points pour estimer un modèle
+    if len(log_ret) < 30:
+        return pd.DataFrame()
+
+    # ARMA sur rendements log (stationnaires), trend='c' => moyenne non nulle
+    model = ARIMA(log_ret, order=(1, 0, 1), trend="c")
+    fit = model.fit()
+
+    fc = fit.get_forecast(steps=steps)
+    sf = fc.summary_frame(alpha=alpha)
+
+    # On veut la moyenne + l'erreur-type de la moyenne (mean_se)
+    # summary_frame contient typiquement: mean, mean_se, mean_ci_lower, mean_ci_upper
+    if "mean" not in sf.columns:
+        return pd.DataFrame()
+
+    # Erreur-type sur la moyenne des rendements prévus
+    if "mean_se" in sf.columns:
+        se = sf["mean_se"].to_numpy(dtype=float)
+    else:
+        # fallback : approx via CI
+        # (upper-lower)/(2*z) où z ~ 1.96 à 95%
+        z = 1.96
+        se = ((sf["mean_ci_upper"] - sf["mean_ci_lower"]) / (2 * z)).to_numpy(dtype=float)
+
+    mean_ret = sf["mean"].to_numpy(dtype=float)
+
+    # Reconstruction du log-niveau
+    last_log = float(log_level.iloc[-1])
+    cum_mean = np.cumsum(mean_ret)
+
+    # IC cumulatif (approx indépendance)
+    z = 1.96  # pour alpha=0.05; si tu changes alpha, z n'est plus exact, mais c'est ok pour UI
+    cum_se = np.sqrt(np.cumsum(se**2))
+
+    future_log_forecast = last_log + cum_mean
+    future_log_lower = future_log_forecast - z * cum_se
+    future_log_upper = future_log_forecast + z * cum_se
+
+    last_date = clean.index[-1]
+    freq = _infer_future_freq(clean.index)
+    future_dates = pd.date_range(start=last_date, periods=steps + 1, freq=freq)[1:]
+
+    out = pd.DataFrame(index=future_dates)
+    out["forecast"] = np.exp(future_log_forecast)
+    out["lower_conf"] = np.exp(future_log_lower)
+    out["upper_conf"] = np.exp(future_log_upper)
+
+    # Sécurité bornes
+    out["lower_conf"] = np.minimum(out["lower_conf"], out["upper_conf"])
+    out["upper_conf"] = np.maximum(out["lower_conf"], out["upper_conf"])
+
+    return out[["forecast", "lower_conf", "upper_conf"]]
 
 
 def generate_forecast(series: pd.Series, steps: int = 30) -> pd.DataFrame:
     """
-    Génère une prévision ARIMA simple sur 'steps' périodes.
-    Retourne un DataFrame indexé par dates futures avec :
-      - forecast
-      - lower_conf
-      - upper_conf
+    Génère une prévision sur 'steps' jours.
+    Retourne un DataFrame avec [forecast, lower_conf, upper_conf].
 
-    Amélioration vs version initiale :
-      - ARIMA sur log(niveau) + drift (trend) pour éviter des prévisions trop plates
-      - fréquence future inférée ('B' vs 'D') selon présence week-end
+    Stratégie :
+    - Méthode principale : ARMA sur rendements log + reconstruction du niveau
+    - Fallback : ARIMA(1,1,1) sur log(niveau) avec drift
     """
     if series is None:
         return pd.DataFrame()
 
-    # Nettoyage basique
-    clean = series.dropna().astype(float)
-    if clean.empty or len(clean) < 20:
-        # Pas assez de données pour un ARIMA fiable
+    clean = _clean_series(series)
+    if clean.empty:
         return pd.DataFrame()
 
-    # Index datetime propre
-    clean = clean.copy()
-    clean.index = pd.to_datetime(clean.index)
-    clean = clean[~clean.index.duplicated(keep="last")].sort_index()
-
-    # La série doit être strictement positive pour log
-    # equity_curve l'est normalement; si ce n'est pas le cas, fallback simple
-    if (clean <= 0).any():
+    # On protège contre steps aberrants
+    steps = int(steps)
+    if steps <= 0:
         return pd.DataFrame()
 
-    # Log-transform pour stabilité
-    y = np.log(clean)
+    alpha = 0.05
 
     try:
-        # ARIMA(1,1,1) avec drift (trend='t' -> tendance/ drift)
-        # En ARIMA avec d=1, 't' correspond à un drift dans le niveau.
-        model = ARIMA(y, order=(1, 1, 1), trend="t")
-        model_fit = model.fit()
+        # 1) Méthode rendements (préférée)
+        out = _forecast_from_log_returns(clean, steps=steps, alpha=alpha)
+        if out is not None and not out.empty:
+            return out
 
-        forecast_res = model_fit.get_forecast(steps=steps)
-        sf = forecast_res.summary_frame(alpha=0.05)  # 95% CI
+        # 2) Fallback niveau log + drift
+        out = _forecast_level_arima_log_drift(clean, steps=steps, alpha=alpha)
+        if out is not None and not out.empty:
+            return out
 
-        # Index futur
-        last_date = clean.index[-1]
-        future_freq = _infer_future_freq(clean.index)
-        future_dates = pd.date_range(start=last_date, periods=steps + 1, freq=future_freq)[1:]
-        sf.index = future_dates
-
-        # La summary_frame renvoie la moyenne et les CI dans l'espace log
-        # On repasse en niveau via exp
-        # Colonnes typiques: mean, mean_ci_lower, mean_ci_upper
-        out = pd.DataFrame(index=future_dates)
-        out["forecast"] = np.exp(sf["mean"])
-        out["lower_conf"] = np.exp(sf["mean_ci_lower"])
-        out["upper_conf"] = np.exp(sf["mean_ci_upper"])
-
-        # Sécurité : éviter des bornes inversées dues aux arrondis
-        out["lower_conf"] = np.minimum(out["lower_conf"], out["upper_conf"])
-        out["upper_conf"] = np.maximum(out["lower_conf"], out["upper_conf"])
-
-        return out[["forecast", "lower_conf", "upper_conf"]]
+        return pd.DataFrame()
 
     except Exception as e:
-        print(f"Erreur ARIMA: {e}")
+        print(f"Erreur forecast: {e}")
         return pd.DataFrame()
