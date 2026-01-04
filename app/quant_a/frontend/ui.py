@@ -137,29 +137,32 @@ def apply_quant_a_theme():
 # ============================================================
 
 def render_ticker_tape():
-    """Génère le HTML pour le bandeau défilant."""
+    """Affiche le bandeau défilant des principaux indices de marché."""
     data = get_global_ticker_data()
-    if not data: return
+    if not data:
+        st.warning("Impossible de récupérer les données de marché globales.")
+        return
 
-    # Construction des items
     items_html = ""
-    for item in data * 2: 
+    for item in data:  # on n’en double plus artificiellement la liste
         color_class = "ticker-up" if item["change"] >= 0 else "ticker-down"
         sign = "+" if item["change"] >= 0 else ""
-        
-        # On construit chaque item sans indentation inutile
-        items_html += f"<div class='ticker-item'><span style='color:#9FA4B1;'>{item['name']}</span> <span style='font-weight:bold;'>{item['price']:,.2f}</span> <span class='{color_class}'>({sign}{item['change']:.2%})</span></div>"
-    
-    # LE FIX EST ICI : On crée une chaîne sans retour à la ligne ni espaces au début
-    full_html = f"""
-<div class="ticker-wrap">
-<div class="ticker">
-{items_html}
-</div>
-</div>
-"""
-    
-    st.markdown(full_html, unsafe_allow_html=True)
+        items_html += (
+            f"<div class='ticker-item'>"
+            f"<span style='color:#9FA4B1;'>{item['name']}</span> "
+            f"<span style='font-weight:bold;'>{item['price']:,.2f}</span> "
+            f"<span class='{color_class}'>({sign}{item['change']:.2%})</span>"
+            f"</div>"
+        )
+
+    html = f"""
+    <div class="ticker-wrap">
+        <div class="ticker">{items_html}</div>
+    </div>
+    """
+
+    st.markdown(html, unsafe_allow_html=True)
+
 # ============================================================
 #  PERIODES
 # ============================================================

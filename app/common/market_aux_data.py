@@ -18,33 +18,42 @@ GLOBAL_INDICES = {
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_global_ticker_data():
-    """Récupère les variations pour le bandeau défilant."""
+    """Récupère les variations pour le bandeau défilant (2 derniers closes valides par ticker)."""
     tickers = list(GLOBAL_INDICES.keys())
     data = []
-    try:
-        # Téléchargement rapide des 2 derniers jours
-        df = yf.download(tickers, period="2d", progress=False)['Close']
-        if len(df) < 2: return []
 
-        today = df.iloc[-1]
-        yesterday = df.iloc[-2]
+    try:
+        df = yf.download(tickers, period="10d", progress=False)["Close"]
+        # df : colonnes = tickers (en général). Si un seul ticker, df peut être une Series.
+        if isinstance(df, pd.Series):
+            df = df.to_frame()
 
         for t in tickers:
-            # Gestion robuste si un ticker manque
-            if t in today and t in yesterday:
-                price = today[t]
-                prev = yesterday[t]
-                # Vérification NaN
-                if pd.isna(price) or pd.isna(prev): continue
-                
-                change = (price - prev) / prev
-                data.append({
-                    "name": GLOBAL_INDICES[t],
-                    "price": price,
-                    "change": change
-                })
+            if t not in df.columns:
+                continue
+
+            s = df[t].dropna()
+            if len(s) < 2:
+                continue
+
+            price = float(s.iloc[-1])
+            prev = float(s.iloc[-2])
+
+            # sécurité
+            if prev == 0:
+                continue
+
+            change = (price - prev) / prev
+
+            data.append({
+                "name": GLOBAL_INDICES[t],
+                "price": price,
+                "change": float(change),
+            })
+
     except Exception:
         return []
+
     return data
 
 def get_world_clocks():
