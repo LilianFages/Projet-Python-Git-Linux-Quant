@@ -16,36 +16,61 @@ GLOBAL_INDICES = {
     "EURUSD=X": "EUR/USD"
 }
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)  # 5 min, cohérent avec ton objectif
 def get_global_ticker_data():
-    """Récupère les variations pour le bandeau défilant."""
+    """Récupère les variations pour le bandeau défilant (robuste aux NaN/week-ends)."""
     tickers = list(GLOBAL_INDICES.keys())
     data = []
-    try:
-        # Téléchargement rapide des 2 derniers jours
-        df = yf.download(tickers, period="2d", progress=False)['Close']
-        if len(df) < 2: return []
 
-        today = df.iloc[-1]
-        yesterday = df.iloc[-2]
+    try:
+        raw = yf.download(
+            tickers,
+            period="7d",          # plus large pour garantir 2 points valides
+            interval="1d",
+            progress=False,
+            auto_adjust=False,
+            group_by="column"
+        )
+        if raw is None or raw.empty:
+            return []
+
+        # yfinance renvoie souvent un MultiIndex (Open/High/Low/Close, ticker)
+        if isinstance(raw.columns, pd.MultiIndex):
+            close = raw["Close"]
+        else:
+            # cas atypique : une seule série / structure différente
+            close = raw["Close"] if "Close" in raw.columns else raw
 
         for t in tickers:
-            # Gestion robuste si un ticker manque
-            if t in today and t in yesterday:
-                price = today[t]
-                prev = yesterday[t]
-                # Vérification NaN
-                if pd.isna(price) or pd.isna(prev): continue
-                
-                change = (price - prev) / prev
-                data.append({
-                    "name": GLOBAL_INDICES[t],
-                    "price": price,
-                    "change": change
-                })
+            if isinstance(close, pd.DataFrame):
+                if t not in close.columns:
+                    continue
+                s = close[t].dropna()
+            else:
+                # Series: uniquement possible si un seul ticker
+                s = close.dropna()
+
+            if len(s) < 2:
+                continue
+
+            price = float(s.iloc[-1])
+            prev = float(s.iloc[-2])
+            if prev == 0:
+                continue
+
+            change = (price - prev) / prev
+
+            data.append({
+                "name": GLOBAL_INDICES[t],
+                "price": price,
+                "change": change
+            })
+
     except Exception:
         return []
+
     return data
+
 
 def get_world_clocks():
     """Récupère l'heure des places boursières."""

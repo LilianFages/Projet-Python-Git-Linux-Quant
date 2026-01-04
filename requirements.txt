@@ -4,3 +4,7 @@ numpy
 requests
 yfinance
 matplotlib
+scipy
+pytz
+altair
+statsmodels
