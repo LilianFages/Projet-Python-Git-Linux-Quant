@@ -184,7 +184,7 @@ def get_period_dates_and_interval(period_label: str):
         start = today - timedelta(days=182)
         interval = "1d"
     elif period_label == "Année écoulée":
-        start = today.replace(month=1, day=1)
+        start = datetime(today.year, 1, 1)   # midnight, pas d'heure conservée
         interval = "1d"
     elif period_label == "1 année":
         start = today - timedelta(days=365)
@@ -393,6 +393,32 @@ def render():
             last_days = trading_days[-22:]
             df = df[df.index.normalize().isin(last_days)]
 
+    # --- Sécurité Année écoulée (YTD) : si trop court / vide (début d'année, jours fériés) ---
+    if selected_period == "Année écoulée" and (df is None or df.empty):
+        st.info("Données insuffisantes depuis le début de l'année : affichage des 30 derniers jours.")
+        start_fallback = end - timedelta(days=30)
+        try:
+            df = load_price_data(symbol, start_fallback, end, "1d")
+            df = filter_market_hours_and_weekends(
+                df,
+                asset_class=selected_class,
+                equity_index=selected_index,
+                period_label="1 mois",   # pour rester cohérent avec tes filtres 22 jours plus bas
+                interval="1d",
+            )
+            # applique le même trimming 1 mois si tu veux
+            trading_days = sorted(df.index.normalize().unique())
+            if len(trading_days) > 22:
+                df = df[df.index.normalize().isin(trading_days[-22:])]
+        except Exception as e:
+            st.error(f"Impossible d'afficher même en fallback 30 jours : {e}")
+            return
+        
+    # --- UX: Année écoulée très courte (début d'année) ---
+    if selected_period == "Année écoulée" and df is not None and not df.empty:
+        nb_days = len(df.index.normalize().unique())
+        if 0 < nb_days < 5:
+            st.info("Année écoulée = performance depuis le 1er janvier. Peu de données disponibles en début d’année.")
 
     # --- SNAPSHOT ACTIF / STATISTIQUES RAPIDES ---
     render_asset_summary(df)
