@@ -61,6 +61,76 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
             help="Quelle métrique l'algorithme doit-il essayer de maximiser ?"
         )
 
+    # ---------------------------------------------------------
+    # 1bis) FRAIS & SLIPPAGE (OPTIONNEL, DEFAULT 0)
+    #  - Ajout d'un menu "profils" robuste (n'écrase pas les valeurs à chaque rerun)
+    # ---------------------------------------------------------
+    with st.expander("Frais & Slippage (optionnel)", expanded=False):
+        st.caption(
+            "Les coûts sont appliqués au backtest (entrée/sortie). "
+            "Par défaut 0 bps = résultats identiques. "
+            "Note : l'optimisation automatique ne tient pas encore compte de ces coûts."
+        )
+
+        COST_PROFILES = {
+            "Défaut (0 / 0 bps)": (0.0, 0.0),
+            "Standard (5 / 5 bps)": (5.0, 5.0),
+            "Très liquide (1 / 2 bps)": (1.0, 2.0),
+        }
+
+        # init session state si absent
+        if "cost_profile_label" not in st.session_state:
+            st.session_state["cost_profile_label"] = "Défaut (0 / 0 bps)"
+        if "fee_bps" not in st.session_state:
+            st.session_state["fee_bps"] = 0.0
+        if "slippage_bps" not in st.session_state:
+            st.session_state["slippage_bps"] = 0.0
+
+        # Menu profil
+        cost_profile_label = st.selectbox(
+            "Profil de coûts",
+            list(COST_PROFILES.keys()),
+            index=list(COST_PROFILES.keys()).index(st.session_state["cost_profile_label"])
+            if st.session_state["cost_profile_label"] in COST_PROFILES else 0,
+            help="Choisit automatiquement un couple Frais/Slippage. Tu peux ensuite ajuster manuellement si besoin.",
+        )
+
+        # Appliquer le preset UNIQUEMENT si le profil change
+        prev_profile = st.session_state.get("cost_profile_prev")
+        if prev_profile != cost_profile_label:
+            preset_fee, preset_slip = COST_PROFILES[cost_profile_label]
+            st.session_state["fee_bps"] = float(preset_fee)
+            st.session_state["slippage_bps"] = float(preset_slip)
+            st.session_state["cost_profile_prev"] = cost_profile_label
+
+        # Persister le label choisi
+        st.session_state["cost_profile_label"] = cost_profile_label
+
+        # Inputs manuels (restent éditables après choix du profil)
+        c_fee, c_slip = st.columns(2)
+        with c_fee:
+            fee_bps = st.number_input(
+                "Frais (bps)",
+                min_value=0.0,
+                max_value=200.0,
+                value=float(st.session_state.get("fee_bps", 0.0)),
+                step=1.0,
+                help="Ex: 5 bps = 0,05% par transaction (par côté).",
+            )
+        with c_slip:
+            slippage_bps = st.number_input(
+                "Slippage (bps)",
+                min_value=0.0,
+                max_value=200.0,
+                value=float(st.session_state.get("slippage_bps", 0.0)),
+                step=1.0,
+                help="Ex: 5 bps = 0,05% d'impact prix par transaction (par côté).",
+            )
+
+        # Persist session state (manual override)
+        st.session_state["fee_bps"] = float(fee_bps)
+        st.session_state["slippage_bps"] = float(slippage_bps)
+
     # Helper formatage
     def format_score(score, metric):
         if metric == "Sharpe Ratio":
@@ -101,7 +171,6 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
         if best:
             st.session_state["mom_window"] = best['lookback']
             st.toast(f"Momentum Optimisé : {format_score(score, target_metric)}")
-
 
     # 2) Paramètres + bouton d’optimisation
     if strategy_name == "Buy & Hold":
@@ -170,6 +239,14 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
         st.button("Optimiser automatiquement (Momentum)", key="opt_mom", on_click=run_mom_optimization)
         strategy_params = {"type": "momentum", "lookback": mom_window, "initial_cash": initial_cash}
 
+    # ---------------------------------------------------------
+    # 2bis) INJECTION COÛTS (si non nuls, sinon on ne touche pas)
+    # ---------------------------------------------------------
+    fee_bps_val = float(st.session_state.get("fee_bps", 0.0))
+    slippage_bps_val = float(st.session_state.get("slippage_bps", 0.0))
+    if fee_bps_val > 0.0 or slippage_bps_val > 0.0:
+        strategy_params["fee_bps"] = fee_bps_val
+        strategy_params["slippage_bps"] = slippage_bps_val
 
     # 3) Exécution
     try:
@@ -266,7 +343,7 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
         with col_pred2:
             forecast_days = st.slider("Horizon de prévision (jours)", min_value=7, max_value=90, value=30, step=1)
 
-        with st.spinner(f"Calcul de la prévision ARIMA sur {forecast_days} jours..."):
+        with st.spinner(f"Calcul de la prévision sur {forecast_days} jours..."):
             forecast_df = generate_forecast(strategy_result.equity_curve, steps=forecast_days)
 
             if not forecast_df.empty:
@@ -285,7 +362,7 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
                     <div style="background-color: #262730; padding: 15px; border-radius: 5px; border-left: 5px solid {color};">
                         <strong>Tendance projetée à {forecast_days} jours : </strong> 
                         <span style="color: {color}; font-size: 1.2em;">{sign}{delta:.2%}</span><br>
-                        <small style="opacity: 0.7;">(Modèle ARIMA(1,1,1) — Intervalle de confiance à 95%)</small>
+                        <small style="opacity: 0.7;">(Modèle sur rendements log — Intervalle de confiance à 95%)</small>
                     </div>
                     """,
                     unsafe_allow_html=True
@@ -337,7 +414,6 @@ def render():
         selected_index = INDEX_MARKET_MAP.get(symbol, "S&P 500")
 
     # --- 2) CHOIX DE LA PÉRIODE ---
-
     st.markdown("### Sélection de la période de backtest")
 
     with st.container():
@@ -369,7 +445,6 @@ def render():
             start = datetime.combine(d_start, datetime.min.time())
             end = datetime.combine(d_end, datetime.max.time())
             period_label = "Manuelle"
-
 
     # --- 3) CHARGEMENT ET SÉCURISATION DES DONNÉES ---
     try:
