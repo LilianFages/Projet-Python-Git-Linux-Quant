@@ -148,7 +148,17 @@ def _fetch_ohlcv_binance(
 
     # On garde les colonnes principales
     df = df[["open", "high", "low", "close", "volume"]]
-    df = df[(df.index >= start_dt) & (df.index <= end_dt)]
+
+    # --- PATCH SAFE : normaliser start/end en Europe/Paris naïf pour filtrer ---
+    start_naive = pd.to_datetime(start)
+    end_naive = pd.to_datetime(end)
+
+    if start_naive.tzinfo is not None:
+        start_naive = start_naive.tz_convert("Europe/Paris").tz_localize(None)
+    if end_naive.tzinfo is not None:
+        end_naive = end_naive.tz_convert("Europe/Paris").tz_localize(None)
+
+    df = df[(df.index >= start_naive) & (df.index <= end_naive)]
     df.index.name = "date"
 
     if df.empty:
@@ -196,6 +206,10 @@ def fetch_ohlcv(
     if df.empty:
         raise ValueError(f"Aucune donnée retournée pour {symbol}.")
 
+    # --- PATCH SAFE : aplatir MultiIndex si jamais ---
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
     df = df.rename(
         columns={
             "Open": "open",
@@ -206,6 +220,10 @@ def fetch_ohlcv(
             "Volume": "volume",
         }
     )
+
+    # --- PATCH SAFE : volume absent sur certains actifs/intervals ---
+    if "volume" not in df.columns:
+        df["volume"] = 0.0
 
     # --- CRITIQUE : s'assurer que l'index est en timezone ---
     # yfinance renvoie parfois UTC, parfois naïf → on force toujours en UTC
