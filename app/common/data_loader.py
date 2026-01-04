@@ -31,15 +31,11 @@ def _to_paris_naive(dt: Union[str, datetime]) -> pd.Timestamp:
 def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
     """Index datetime + tri + dédup. Aplati colonnes MultiIndex si besoin."""
     df = df.copy()
-
-    # index datetime
     df.index = pd.to_datetime(df.index)
 
-    # colonnes MultiIndex -> niveau 0
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
-    # tri + dédup index
     df = df[~df.index.duplicated(keep="last")].sort_index()
     return df
 
@@ -60,15 +56,6 @@ def load_price_data(
     - fetch_ohlcv() choisit la source : Yahoo (actions/ETF/FX/commodities/indices),
       Binance (crypto), etc.
     """
-
-    # ---------------------------
-    # Défensif : symbol toujours str
-    # ---------------------------
-    if not isinstance(symbol, str):
-        if isinstance(symbol, (tuple, list)) and len(symbol) > 0:
-            symbol = symbol[0]
-        else:
-            symbol = str(symbol)
 
     cache_file = _cache_path(symbol, interval)
     start_dt = _to_paris_naive(start)
@@ -114,17 +101,6 @@ def load_price_data(
     df = df.loc[(df.index >= start_dt) & (df.index <= end_dt)]
 
     if df.empty:
-        # fallback sur cache précédent si disponible
-        if cache_file.exists():
-            try:
-                cache_df = pd.read_csv(cache_file, parse_dates=["date"], index_col="date")
-                cache_df = _normalize_df(cache_df)
-                if not cache_df.empty:
-                    print(f"[Fallback cache] Utilisation du dernier cache valide pour {symbol}.")
-                    return cache_df
-            except Exception:
-                pass
-
         raise ValueError(f"Aucune donnée disponible pour {symbol} entre {start_dt} et {end_dt}.")
 
     return df
