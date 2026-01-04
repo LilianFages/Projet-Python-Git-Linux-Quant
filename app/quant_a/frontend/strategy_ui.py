@@ -7,7 +7,6 @@ import pandas as pd
 # --- IMPORTS BACKEND ---
 from app.quant_a.backend.strategies import run_strategy, StrategyResult
 from app.quant_a.backend.metrics import calculate_metrics
-# NOUVEL IMPORT : Moteur d'optimisation centralisé
 from app.quant_a.backend.optimization import optimize_sma, optimize_rsi, optimize_momentum
 
 # --- IMPORTS FRONTEND / COMMON ---
@@ -63,13 +62,14 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
 
     # ---------------------------------------------------------
     # 1bis) FRAIS & SLIPPAGE (OPTIONNEL, DEFAULT 0)
-    #  - Ajout d'un menu "profils" robuste (n'écrase pas les valeurs à chaque rerun)
+    #  - Menu profils robuste (n'écrase pas les valeurs à chaque rerun)
+    #  - Les coûts sont maintenant intégrés dans l'optimisation auto.
     # ---------------------------------------------------------
     with st.expander("Frais & Slippage (optionnel)", expanded=False):
         st.caption(
             "Les coûts sont appliqués au backtest (entrée/sortie). "
             "Par défaut 0 bps = résultats identiques. "
-            "Note : l'optimisation automatique ne tient pas encore compte de ces coûts."
+            "Les coûts sont également pris en compte dans l'optimisation automatique."
         )
 
         COST_PROFILES = {
@@ -136,40 +136,60 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
         if metric == "Sharpe Ratio":
             return f"{score:.2f}"
         if metric == "Max Drawdown":
-            # max_drawdown est négatif : plus proche de 0 = mieux
             return f"{score:.2%} (plus proche de 0 = mieux)"
-        # Total Return / Win Rate : scores en [0,1] → %
         return f"{score*100:.2f} %"
 
-    # --- CALLBACKS D'OPTIMISATION (Mise à jour avec le Backend) ---
+    # Récupère les coûts sélectionnés (utilisés pour l'optimisation auto + backtest)
+    fee_bps_val = float(st.session_state.get("fee_bps", 0.0))
+    slippage_bps_val = float(st.session_state.get("slippage_bps", 0.0))
+
+    # --- CALLBACKS D'OPTIMISATION (avec coûts) ---
     def run_sma_optimization():
         current_cash = st.session_state.get("cash_sma", 10000)
         with st.spinner(f"Optimisation SMA ({target_metric})..."):
-            best, score = optimize_sma(df, initial_cash=current_cash, target_metric=target_metric)
+            best, score = optimize_sma(
+                df,
+                initial_cash=current_cash,
+                target_metric=target_metric,
+                fee_bps=fee_bps_val,
+                slippage_bps=slippage_bps_val,
+            )
 
         if best:
-            st.session_state["sma_short"] = best['short_window']
-            st.session_state["sma_long"] = best['long_window']
+            st.session_state["sma_short"] = best["short_window"]
+            st.session_state["sma_long"] = best["long_window"]
             st.toast(f"SMA Optimisé : {format_score(score, target_metric)}")
 
     def run_rsi_optimization():
         current_cash = st.session_state.get("cash_rsi", 10000)
         with st.spinner(f"Optimisation RSI ({target_metric})..."):
-            best, score = optimize_rsi(df, initial_cash=current_cash, target_metric=target_metric)
+            best, score = optimize_rsi(
+                df,
+                initial_cash=current_cash,
+                target_metric=target_metric,
+                fee_bps=fee_bps_val,
+                slippage_bps=slippage_bps_val,
+            )
 
         if best:
-            st.session_state["rsi_window"] = best['window']
-            st.session_state["rsi_oversold"] = best['oversold']
-            st.session_state["rsi_overbought"] = best['overbought']
+            st.session_state["rsi_window"] = best["window"]
+            st.session_state["rsi_oversold"] = best["oversold"]
+            st.session_state["rsi_overbought"] = best["overbought"]
             st.toast(f"RSI Optimisé : {format_score(score, target_metric)}")
 
     def run_mom_optimization():
         current_cash = st.session_state.get("cash_mom", 10000)
         with st.spinner(f"Optimisation Momentum ({target_metric})..."):
-            best, score = optimize_momentum(df, initial_cash=current_cash, target_metric=target_metric)
+            best, score = optimize_momentum(
+                df,
+                initial_cash=current_cash,
+                target_metric=target_metric,
+                fee_bps=fee_bps_val,
+                slippage_bps=slippage_bps_val,
+            )
 
         if best:
-            st.session_state["mom_window"] = best['lookback']
+            st.session_state["mom_window"] = best["lookback"]
             st.toast(f"Momentum Optimisé : {format_score(score, target_metric)}")
 
     # 2) Paramètres + bouton d’optimisation
@@ -189,7 +209,6 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
         with col_sma2:
             sma_long = st.number_input("SMA longue", min_value=10, step=1, key="sma_long")
 
-        # Validation : évite SMA courte >= SMA longue (résultats absurdes)
         if sma_short >= sma_long:
             st.warning("Paramètres invalides : la SMA courte doit être strictement inférieure à la SMA longue.")
             st.stop()
@@ -201,7 +220,7 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
             "type": "sma_crossover",
             "short_window": sma_short,
             "long_window": sma_long,
-            "initial_cash": initial_cash
+            "initial_cash": initial_cash,
         }
 
     elif strategy_name == "RSI Strategy":
@@ -228,7 +247,7 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
             "window": rsi_window,
             "oversold": rsi_oversold,
             "overbought": rsi_overbought,
-            "initial_cash": initial_cash
+            "initial_cash": initial_cash,
         }
 
     else:  # Momentum
@@ -240,10 +259,8 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
         strategy_params = {"type": "momentum", "lookback": mom_window, "initial_cash": initial_cash}
 
     # ---------------------------------------------------------
-    # 2bis) INJECTION COÛTS (si non nuls, sinon on ne touche pas)
+    # Injection coûts dans le backtest (si non nuls)
     # ---------------------------------------------------------
-    fee_bps_val = float(st.session_state.get("fee_bps", 0.0))
-    slippage_bps_val = float(st.session_state.get("slippage_bps", 0.0))
     if fee_bps_val > 0.0 or slippage_bps_val > 0.0:
         strategy_params["fee_bps"] = fee_bps_val
         strategy_params["slippage_bps"] = slippage_bps_val
@@ -260,7 +277,7 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
     value_chart = make_strategy_value_chart(df, strategy_result, selected_period)
     st.altair_chart(value_chart, use_container_width=True)
 
-    # 5) Tableau de bord Métriques (8 métriques conservées)
+    # 5) Tableau de bord Métriques
     st.markdown("---")
     st.subheader("Analyse détaillée de la performance")
 
@@ -274,28 +291,25 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
 
     m5, m6, m7, m8 = st.columns(4)
     m5.metric("Volatilité (An)", f"{metrics.volatility:.2%}")
-    # Clarification : ce n'est pas un win-rate trade-based dans ton backend actuel
     m6.metric("% jours positifs", f"{metrics.win_rate:.2%}")
     m7.metric("Nb Trades", f"{metrics.trades_count}")
     m8.metric("Temps Investi", f"{metrics.exposure_time:.0%}")
 
-    # --- NOUVELLE SECTION : HEATMAP & ROLLING ---
+    # --- SECTION : HEATMAP & ROLLING ---
     st.markdown("---")
     st.subheader(" Structure de la Performance & Régimes de Marché")
 
-    # Préparation des données pour les nouveaux graphes
     strategy_ret = strategy_result.equity_curve.pct_change().dropna()
-
     df_analysis = pd.DataFrame(index=strategy_ret.index)
-    df_analysis['strategy_return'] = strategy_ret
+    df_analysis["strategy_return"] = strategy_ret
 
-    if 'close' in df.columns:
-        bench_series = df['close'].pct_change().dropna()
+    if "close" in df.columns:
+        bench_series = df["close"].pct_change().dropna()
         common_index = df_analysis.index.intersection(bench_series.index)
         df_analysis = df_analysis.loc[common_index]
-        df_analysis['benchmark_return'] = bench_series.loc[common_index]
+        df_analysis["benchmark_return"] = bench_series.loc[common_index]
     else:
-        df_analysis['benchmark_return'] = 0
+        df_analysis["benchmark_return"] = 0
 
     col_struct_1, col_struct_2 = st.columns([1.8, 1.2])
 
@@ -351,7 +365,7 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
                 st.altair_chart(forecast_chart, use_container_width=True)
 
                 last_val = strategy_result.equity_curve.iloc[-1]
-                pred_val = forecast_df['forecast'].iloc[-1]
+                pred_val = forecast_df["forecast"].iloc[-1]
                 delta = (pred_val - last_val) / last_val
 
                 color = "green" if delta > 0 else "red"
@@ -378,7 +392,6 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
 def render():
     apply_quant_a_theme()
 
-    # TITRE
     st.markdown("<div class='quant-title'>Quant A — Stratégies & Backtest</div>", unsafe_allow_html=True)
     st.markdown("<div class='quant-subtitle'>Choix, optimisation et analyse de performance de stratégies de backtesting</div>", unsafe_allow_html=True)
 
@@ -403,8 +416,6 @@ def render():
         return val.get("name", key) if isinstance(val, dict) else str(val)
 
     selected_pair = st.sidebar.selectbox("Choisir un actif", options, format_func=format_option)
-
-    # Défensif : garantit une string ticker
     symbol = selected_pair[0] if isinstance(selected_pair, tuple) else str(selected_pair)
 
     # Mapping Indice pour le filtre horaires
@@ -423,7 +434,11 @@ def render():
         today = datetime(now.year, now.month, now.day)
 
         if mode == "Périodes fixes":
-            period_label = st.selectbox("Période", ["6 mois", "1 année", "3 années", "5 années", "10 années", "Tout l'historique"], index=4)
+            period_label = st.selectbox(
+                "Période",
+                ["6 mois", "1 année", "3 années", "5 années", "10 années", "Tout l'historique"],
+                index=4
+            )
 
             days_map = {
                 "6 mois": 182, "1 année": 365, "3 années": 1095,
