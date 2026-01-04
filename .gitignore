@@ -205,3 +205,7 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Local price cache (generated)
+app/common/cache/*.csv
+app/common/cache/**/*.csv
