@@ -6,16 +6,16 @@ import pandas as pd
 
 # --- IMPORTS BACKEND ---
 from app.quant_a.backend.strategies import run_strategy, StrategyResult
-from app.quant_a.backend.metrics import calculate_metrics 
+from app.quant_a.backend.metrics import calculate_metrics
 # NOUVEL IMPORT : Moteur d'optimisation centralisé
 from app.quant_a.backend.optimization import optimize_sma, optimize_rsi, optimize_momentum
 
 # --- IMPORTS FRONTEND / COMMON ---
 from app.quant_a.frontend.charts import (
-    make_strategy_comparison_chart, 
+    make_strategy_comparison_chart,
     make_strategy_value_chart,
-    make_returns_distribution_chart, 
-    make_drawdown_chart, 
+    make_returns_distribution_chart,
+    make_drawdown_chart,
     make_forecast_chart,
     make_seasonality_heatmap,
     make_rolling_stats_chart
@@ -65,15 +65,18 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
     def format_score(score, metric):
         if metric == "Sharpe Ratio":
             return f"{score:.2f}"
+        if metric == "Max Drawdown":
+            # max_drawdown est négatif : plus proche de 0 = mieux
+            return f"{score:.2%} (plus proche de 0 = mieux)"
+        # Total Return / Win Rate : scores en [0,1] → %
         return f"{score*100:.2f} %"
 
     # --- CALLBACKS D'OPTIMISATION (Mise à jour avec le Backend) ---
     def run_sma_optimization():
         current_cash = st.session_state.get("cash_sma", 10000)
         with st.spinner(f"Optimisation SMA ({target_metric})..."):
-            # Appel au backend importé (plus de _)
             best, score = optimize_sma(df, initial_cash=current_cash, target_metric=target_metric)
-        
+
         if best:
             st.session_state["sma_short"] = best['short_window']
             st.session_state["sma_long"] = best['long_window']
@@ -82,9 +85,8 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
     def run_rsi_optimization():
         current_cash = st.session_state.get("cash_rsi", 10000)
         with st.spinner(f"Optimisation RSI ({target_metric})..."):
-            # Appel au backend importé
             best, score = optimize_rsi(df, initial_cash=current_cash, target_metric=target_metric)
-        
+
         if best:
             st.session_state["rsi_window"] = best['window']
             st.session_state["rsi_oversold"] = best['oversold']
@@ -94,9 +96,8 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
     def run_mom_optimization():
         current_cash = st.session_state.get("cash_mom", 10000)
         with st.spinner(f"Optimisation Momentum ({target_metric})..."):
-            # Appel au backend importé
             best, score = optimize_momentum(df, initial_cash=current_cash, target_metric=target_metric)
-        
+
         if best:
             st.session_state["mom_window"] = best['lookback']
             st.toast(f"Momentum Optimisé : {format_score(score, target_metric)}")
@@ -109,24 +110,39 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
 
     elif strategy_name == "SMA Crossover":
         col_sma1, col_sma2 = st.columns(2)
-        if "sma_short" not in st.session_state: st.session_state["sma_short"] = 20
-        if "sma_long" not in st.session_state: st.session_state["sma_long"] = 50
-        
+        if "sma_short" not in st.session_state:
+            st.session_state["sma_short"] = 20
+        if "sma_long" not in st.session_state:
+            st.session_state["sma_long"] = 50
+
         with col_sma1:
             sma_short = st.number_input("SMA courte", min_value=5, step=1, key="sma_short")
         with col_sma2:
             sma_long = st.number_input("SMA longue", min_value=10, step=1, key="sma_long")
-        
+
+        # Validation : évite SMA courte >= SMA longue (résultats absurdes)
+        if sma_short >= sma_long:
+            st.warning("Paramètres invalides : la SMA courte doit être strictement inférieure à la SMA longue.")
+            st.stop()
+
         initial_cash = st.number_input("Capital initial", min_value=1000, value=10_000, step=1000, key="cash_sma")
         st.button("Optimiser automatiquement (SMA)", key="opt_sma", on_click=run_sma_optimization)
 
-        strategy_params = {"type": "sma_crossover", "short_window": sma_short, "long_window": sma_long, "initial_cash": initial_cash}
+        strategy_params = {
+            "type": "sma_crossover",
+            "short_window": sma_short,
+            "long_window": sma_long,
+            "initial_cash": initial_cash
+        }
 
     elif strategy_name == "RSI Strategy":
         col_rsi1, col_rsi2, col_rsi3 = st.columns(3)
-        if "rsi_window" not in st.session_state: st.session_state["rsi_window"] = 14
-        if "rsi_oversold" not in st.session_state: st.session_state["rsi_oversold"] = 30
-        if "rsi_overbought" not in st.session_state: st.session_state["rsi_overbought"] = 70
+        if "rsi_window" not in st.session_state:
+            st.session_state["rsi_window"] = 14
+        if "rsi_oversold" not in st.session_state:
+            st.session_state["rsi_oversold"] = 30
+        if "rsi_overbought" not in st.session_state:
+            st.session_state["rsi_overbought"] = 70
 
         with col_rsi1:
             rsi_window = st.number_input("Fenêtre RSI", min_value=5, step=1, key="rsi_window")
@@ -137,11 +153,18 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
 
         initial_cash = st.number_input("Capital initial", min_value=1000, value=10_000, step=1000, key="cash_rsi")
         st.button("Optimiser automatiquement (RSI)", key="opt_rsi", on_click=run_rsi_optimization)
-        
-        strategy_params = {"type": "rsi", "window": rsi_window, "oversold": rsi_oversold, "overbought": rsi_overbought, "initial_cash": initial_cash}
+
+        strategy_params = {
+            "type": "rsi",
+            "window": rsi_window,
+            "oversold": rsi_oversold,
+            "overbought": rsi_overbought,
+            "initial_cash": initial_cash
+        }
 
     else:  # Momentum
-        if "mom_window" not in st.session_state: st.session_state["mom_window"] = 10
+        if "mom_window" not in st.session_state:
+            st.session_state["mom_window"] = 10
         mom_window = st.number_input("Fenêtre momentum (jours)", min_value=2, step=1, key="mom_window")
         initial_cash = st.number_input("Capital initial", min_value=1000, value=10_000, step=1000, key="cash_mom")
         st.button("Optimiser automatiquement (Momentum)", key="opt_mom", on_click=run_mom_optimization)
@@ -163,7 +186,7 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
     # 5) Tableau de bord Métriques (8 métriques conservées)
     st.markdown("---")
     st.subheader("Analyse détaillée de la performance")
-    
+
     metrics = calculate_metrics(strategy_result.equity_curve, strategy_result.position)
 
     m1, m2, m3, m4 = st.columns(4)
@@ -174,20 +197,21 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
 
     m5, m6, m7, m8 = st.columns(4)
     m5.metric("Volatilité (An)", f"{metrics.volatility:.2%}")
-    m6.metric("Win Rate", f"{metrics.win_rate:.2%}")
+    # Clarification : ce n'est pas un win-rate trade-based dans ton backend actuel
+    m6.metric("% jours positifs", f"{metrics.win_rate:.2%}")
     m7.metric("Nb Trades", f"{metrics.trades_count}")
     m8.metric("Temps Investi", f"{metrics.exposure_time:.0%}")
 
     # --- NOUVELLE SECTION : HEATMAP & ROLLING ---
     st.markdown("---")
     st.subheader(" Structure de la Performance & Régimes de Marché")
-    
+
     # Préparation des données pour les nouveaux graphes
     strategy_ret = strategy_result.equity_curve.pct_change().dropna()
-    
+
     df_analysis = pd.DataFrame(index=strategy_ret.index)
     df_analysis['strategy_return'] = strategy_ret
-    
+
     if 'close' in df.columns:
         bench_series = df['close'].pct_change().dropna()
         common_index = df_analysis.index.intersection(bench_series.index)
@@ -196,7 +220,7 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
     else:
         df_analysis['benchmark_return'] = 0
 
-    col_struct_1, col_struct_2 = st.columns([1.8, 1.2]) 
+    col_struct_1, col_struct_2 = st.columns([1.8, 1.2])
 
     with col_struct_1:
         st.markdown("**Saisonnalité des rendements (Mensuels)**")
@@ -207,8 +231,8 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
     with col_struct_2:
         st.markdown("**Corrélation & Beta Glissants (6 Mois)**")
         rolling_chart = make_rolling_stats_chart(
-            df_analysis, 
-            strategy_col="strategy_return", 
+            df_analysis,
+            strategy_col="strategy_return",
             benchmark_col="benchmark_return",
             window_days=126
         )
@@ -216,15 +240,15 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
             st.altair_chart(rolling_chart, use_container_width=True)
 
     st.markdown("---")
-    
+
     # SECTION : Analyse des Risques
     st.subheader(" Analyse des risques & Distribution")
     col_risk1, col_risk2 = st.columns(2)
-    
+
     with col_risk1:
         dd_chart = make_drawdown_chart(strategy_result.equity_curve)
         st.altair_chart(dd_chart, use_container_width=True)
-        
+
     with col_risk2:
         dist_chart = make_returns_distribution_chart(strategy_result.equity_curve)
         st.altair_chart(dist_chart, use_container_width=True)
@@ -232,30 +256,30 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
     # SECTION : Prévision
     st.markdown("---")
     st.subheader("Prévision du Portefeuille (Expérimental)")
-    
+
     col_pred1, col_pred2 = st.columns([1, 3])
-    
+
     with col_pred1:
         enable_forecast = st.checkbox("Activer la prévision", value=False)
-        
+
     if enable_forecast:
         with col_pred2:
             forecast_days = st.slider("Horizon de prévision (jours)", min_value=7, max_value=90, value=30, step=1)
 
         with st.spinner(f"Calcul de la prévision ARIMA sur {forecast_days} jours..."):
             forecast_df = generate_forecast(strategy_result.equity_curve, steps=forecast_days)
-            
+
             if not forecast_df.empty:
                 forecast_chart = make_forecast_chart(strategy_result.equity_curve, forecast_df)
                 st.altair_chart(forecast_chart, use_container_width=True)
-                
+
                 last_val = strategy_result.equity_curve.iloc[-1]
                 pred_val = forecast_df['forecast'].iloc[-1]
                 delta = (pred_val - last_val) / last_val
-                
+
                 color = "green" if delta > 0 else "red"
                 sign = "+" if delta > 0 else ""
-                
+
                 st.markdown(
                     f"""
                     <div style="background-color: #262730; padding: 15px; border-radius: 5px; border-left: 5px solid {color};">
@@ -263,7 +287,7 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
                         <span style="color: {color}; font-size: 1.2em;">{sign}{delta:.2%}</span><br>
                         <small style="opacity: 0.7;">(Modèle ARIMA(1,1,1) — Intervalle de confiance à 95%)</small>
                     </div>
-                    """, 
+                    """,
                     unsafe_allow_html=True
                 )
             else:
@@ -296,32 +320,37 @@ def render():
         symbols_dict = ASSET_CLASSES[selected_class]
 
     options = list(symbols_dict.items())
+
     def format_option(opt):
         key, val = opt
         return val.get("name", key) if isinstance(val, dict) else str(val)
 
     selected_pair = st.sidebar.selectbox("Choisir un actif", options, format_func=format_option)
-    symbol = selected_pair[0]
+
+    # Défensif : garantit une string ticker
+    symbol = selected_pair[0] if isinstance(selected_pair, tuple) else str(selected_pair)
 
     # Mapping Indice pour le filtre horaires
-    if selected_class == "ETF": selected_index = "S&P 500"
-    elif selected_class == "Indices": selected_index = INDEX_MARKET_MAP.get(symbol, "S&P 500")
+    if selected_class == "ETF":
+        selected_index = "S&P 500"
+    elif selected_class == "Indices":
+        selected_index = INDEX_MARKET_MAP.get(symbol, "S&P 500")
 
     # --- 2) CHOIX DE LA PÉRIODE ---
-    
+
     st.markdown("### Sélection de la période de backtest")
 
     with st.container():
         mode = st.radio("Méthode", ["Périodes fixes", "Sélection manuelle"], horizontal=True, label_visibility="collapsed")
-        
+
         now = datetime.now()
         today = datetime(now.year, now.month, now.day)
 
         if mode == "Périodes fixes":
             period_label = st.selectbox("Période", ["6 mois", "1 année", "3 années", "5 années", "10 années", "Tout l'historique"], index=4)
-            
+
             days_map = {
-                "6 mois": 182, "1 année": 365, "3 années": 1095, 
+                "6 mois": 182, "1 année": 365, "3 années": 1095,
                 "5 années": 1825, "10 années": 3650
             }
 
@@ -329,14 +358,14 @@ def render():
                 start = datetime(1990, 1, 1)
             else:
                 start = today - timedelta(days=days_map.get(period_label, 3650))
-            
+
             end = today + timedelta(days=1)
 
         else:
             c1, c2 = st.columns(2)
             d_start = c1.date_input("Début", today - timedelta(days=365))
             d_end = c2.date_input("Fin", today)
-            
+
             start = datetime.combine(d_start, datetime.min.time())
             end = datetime.combine(d_end, datetime.max.time())
             period_label = "Manuelle"
@@ -345,7 +374,7 @@ def render():
     # --- 3) CHARGEMENT ET SÉCURISATION DES DONNÉES ---
     try:
         df_raw = load_price_data(symbol, start, end, "1d")
-        
+
         if df_raw is None or df_raw.empty:
             st.warning("Aucune donnée disponible.")
             return
