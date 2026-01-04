@@ -16,7 +16,7 @@ GLOBAL_INDICES = {
     "EURUSD=X": "EUR/USD"
 }
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def get_global_ticker_data():
     """Récupère les variations pour le bandeau défilant (2 derniers closes valides par ticker)."""
     tickers = list(GLOBAL_INDICES.keys())

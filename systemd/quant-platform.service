@@ -1,0 +1,20 @@
+[Unit]
+Description=Quant Platform Streamlit App
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/ABSOLUTE/PATH/TO/REPO
+
+Environment="PYTHONUNBUFFERED=1"
+Environment="STREAMLIT_SERVER_HEADLESS=true"
+Environment="STREAMLIT_BROWSER_GATHER_USAGE_STATS=false"
+
+ExecStart=/ABSOLUTE/PATH/TO/REPO/.venv/bin/streamlit run main.py --server.port 8501 --server.address 0.0.0.0
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

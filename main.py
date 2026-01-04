@@ -3,6 +3,12 @@ from app.quant_a.frontend import ui as quant_a_ui
 from app.quant_a.frontend import strategy_ui as quant_a_strategy_ui
 from app.quant_b.frontend import ui as quant_b_ui
 
+from streamlit_autorefresh import st_autorefresh
+
+# Refresh automatique toutes les 5 minutes (300000 ms)
+st_autorefresh(interval=5 * 60 * 1000, key="auto_refresh_5min")
+
+
 st.set_page_config(
     page_title="Quant Platform",
     layout="wide",          # <-- important
