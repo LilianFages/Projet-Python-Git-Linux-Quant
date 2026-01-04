@@ -62,8 +62,8 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
 
     # ---------------------------------------------------------
     # 1bis) FRAIS & SLIPPAGE (OPTIONNEL, DEFAULT 0)
-    #  - Menu profils robuste (n'écrase pas les valeurs à chaque rerun)
-    #  - Les coûts sont maintenant intégrés dans l'optimisation auto.
+    #  - Correction UX : changement de profil effectif dès le 1er clic
+    #  - Les widgets sont maintenant pilotés via keys (session_state)
     # ---------------------------------------------------------
     with st.expander("Frais & Slippage (optionnel)", expanded=False):
         st.caption(
@@ -78,58 +78,52 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
             "Très liquide (1 / 2 bps)": (1.0, 2.0),
         }
 
-        # init session state si absent
-        if "cost_profile_label" not in st.session_state:
-            st.session_state["cost_profile_label"] = "Défaut (0 / 0 bps)"
-        if "fee_bps" not in st.session_state:
-            st.session_state["fee_bps"] = 0.0
-        if "slippage_bps" not in st.session_state:
-            st.session_state["slippage_bps"] = 0.0
+        DEFAULT_PROFILE = "Défaut (0 / 0 bps)"
+        if "cost_profile_label" not in st.session_state or st.session_state["cost_profile_label"] not in COST_PROFILES:
+            st.session_state["cost_profile_label"] = DEFAULT_PROFILE
 
-        # Menu profil
-        cost_profile_label = st.selectbox(
+        # Initialiser fee/slippage si absents
+        if "fee_bps" not in st.session_state or "slippage_bps" not in st.session_state:
+            preset_fee, preset_slip = COST_PROFILES[st.session_state["cost_profile_label"]]
+            st.session_state["fee_bps"] = float(preset_fee)
+            st.session_state["slippage_bps"] = float(preset_slip)
+
+        def _apply_cost_profile():
+            """Applique le preset dès que l'utilisateur change le profil (1er clic)."""
+            label = st.session_state.get("cost_profile_label", DEFAULT_PROFILE)
+            preset_fee, preset_slip = COST_PROFILES.get(label, COST_PROFILES[DEFAULT_PROFILE])
+            st.session_state["fee_bps"] = float(preset_fee)
+            st.session_state["slippage_bps"] = float(preset_slip)
+
+        # Menu profil (key + callback => effet immédiat)
+        st.selectbox(
             "Profil de coûts",
-            list(COST_PROFILES.keys()),
-            index=list(COST_PROFILES.keys()).index(st.session_state["cost_profile_label"])
-            if st.session_state["cost_profile_label"] in COST_PROFILES else 0,
+            options=list(COST_PROFILES.keys()),
+            key="cost_profile_label",
+            on_change=_apply_cost_profile,
             help="Choisit automatiquement un couple Frais/Slippage. Tu peux ensuite ajuster manuellement si besoin.",
         )
 
-        # Appliquer le preset UNIQUEMENT si le profil change
-        prev_profile = st.session_state.get("cost_profile_prev")
-        if prev_profile != cost_profile_label:
-            preset_fee, preset_slip = COST_PROFILES[cost_profile_label]
-            st.session_state["fee_bps"] = float(preset_fee)
-            st.session_state["slippage_bps"] = float(preset_slip)
-            st.session_state["cost_profile_prev"] = cost_profile_label
-
-        # Persister le label choisi
-        st.session_state["cost_profile_label"] = cost_profile_label
-
-        # Inputs manuels (restent éditables après choix du profil)
+        # Inputs manuels (keys => la valeur affichée suit le state instantanément)
         c_fee, c_slip = st.columns(2)
         with c_fee:
-            fee_bps = st.number_input(
+            st.number_input(
                 "Frais (bps)",
                 min_value=0.0,
                 max_value=200.0,
-                value=float(st.session_state.get("fee_bps", 0.0)),
                 step=1.0,
+                key="fee_bps",
                 help="Ex: 5 bps = 0,05% par transaction (par côté).",
             )
         with c_slip:
-            slippage_bps = st.number_input(
+            st.number_input(
                 "Slippage (bps)",
                 min_value=0.0,
                 max_value=200.0,
-                value=float(st.session_state.get("slippage_bps", 0.0)),
                 step=1.0,
+                key="slippage_bps",
                 help="Ex: 5 bps = 0,05% d'impact prix par transaction (par côté).",
             )
-
-        # Persist session state (manual override)
-        st.session_state["fee_bps"] = float(fee_bps)
-        st.session_state["slippage_bps"] = float(slippage_bps)
 
     # Helper formatage
     def format_score(score, metric):
@@ -144,15 +138,19 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
     slippage_bps_val = float(st.session_state.get("slippage_bps", 0.0))
 
     # --- CALLBACKS D'OPTIMISATION (avec coûts) ---
+    # (Lecture "fresh" depuis session_state pour éviter toute valeur capturée)
     def run_sma_optimization():
         current_cash = st.session_state.get("cash_sma", 10000)
+        fee = float(st.session_state.get("fee_bps", 0.0))
+        slip = float(st.session_state.get("slippage_bps", 0.0))
+
         with st.spinner(f"Optimisation SMA ({target_metric})..."):
             best, score = optimize_sma(
                 df,
                 initial_cash=current_cash,
                 target_metric=target_metric,
-                fee_bps=fee_bps_val,
-                slippage_bps=slippage_bps_val,
+                fee_bps=fee,
+                slippage_bps=slip,
             )
 
         if best:
@@ -162,13 +160,16 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
 
     def run_rsi_optimization():
         current_cash = st.session_state.get("cash_rsi", 10000)
+        fee = float(st.session_state.get("fee_bps", 0.0))
+        slip = float(st.session_state.get("slippage_bps", 0.0))
+
         with st.spinner(f"Optimisation RSI ({target_metric})..."):
             best, score = optimize_rsi(
                 df,
                 initial_cash=current_cash,
                 target_metric=target_metric,
-                fee_bps=fee_bps_val,
-                slippage_bps=slippage_bps_val,
+                fee_bps=fee,
+                slippage_bps=slip,
             )
 
         if best:
@@ -179,13 +180,16 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
 
     def run_mom_optimization():
         current_cash = st.session_state.get("cash_mom", 10000)
+        fee = float(st.session_state.get("fee_bps", 0.0))
+        slip = float(st.session_state.get("slippage_bps", 0.0))
+
         with st.spinner(f"Optimisation Momentum ({target_metric})..."):
             best, score = optimize_momentum(
                 df,
                 initial_cash=current_cash,
                 target_metric=target_metric,
-                fee_bps=fee_bps_val,
-                slippage_bps=slippage_bps_val,
+                fee_bps=fee,
+                slippage_bps=slip,
             )
 
         if best:
@@ -261,6 +265,9 @@ def render_strategy_backtest_section(df: pd.DataFrame, selected_period: str) -> 
     # ---------------------------------------------------------
     # Injection coûts dans le backtest (si non nuls)
     # ---------------------------------------------------------
+    fee_bps_val = float(st.session_state.get("fee_bps", 0.0))
+    slippage_bps_val = float(st.session_state.get("slippage_bps", 0.0))
+
     if fee_bps_val > 0.0 or slippage_bps_val > 0.0:
         strategy_params["fee_bps"] = fee_bps_val
         strategy_params["slippage_bps"] = slippage_bps_val
