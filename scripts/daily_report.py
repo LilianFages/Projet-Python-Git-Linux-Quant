@@ -242,61 +242,302 @@ def write_html_report(
     summary_lines: list[str],
     full_df: pd.DataFrame,
 ):
-    html_df = full_df.copy()
+    df = full_df.copy()
 
+    # --- KPI (robustes) ---
+    def _safe_num(s):
+        return pd.to_numeric(s, errors="coerce")
+
+    best_day = None
+    worst_day = None
+    most_vol = None
+    worst_dd = None
+
+    if "daily_return" in df.columns:
+        s = _safe_num(df["daily_return"])
+        if s.notna().any():
+            best_day = df.loc[s.idxmax()]
+            worst_day = df.loc[s.idxmin()]
+
+    if "vol_20d_ann" in df.columns:
+        s = _safe_num(df["vol_20d_ann"])
+        if s.notna().any():
+            most_vol = df.loc[s.idxmax()]
+
+    if "max_drawdown" in df.columns:
+        s = _safe_num(df["max_drawdown"])
+        if s.notna().any():
+            worst_dd = df.loc[s.idxmin()]  # plus négatif
+
+    # --- Format pour affichage HTML (avec couleurs) ---
     pct_cols = ["daily_return", "ret_5d", "ret_20d", "ret_252d", "vol_20d_ann", "max_drawdown"]
-    for c in pct_cols:
-        if c in html_df.columns:
-            html_df[c] = (pd.to_numeric(html_df[c], errors="coerce") * 100).round(2)
-
     num_cols = ["open", "high", "low", "close", "high_52w", "low_52w"]
-    for c in num_cols:
-        if c in html_df.columns:
-            html_df[c] = pd.to_numeric(html_df[c], errors="coerce").round(2)
-
     int_cols = ["volume", "avg_vol_20d", "obs"]
-    for c in int_cols:
-        if c in html_df.columns:
-            html_df[c] = pd.to_numeric(html_df[c], errors="coerce").round(0)
 
+    def fmt_num(v, digits=2):
+        x = pd.to_numeric(v, errors="coerce")
+        if pd.isna(x):
+            return ""
+        return f"{float(x):,.{digits}f}".replace(",", " ")
+
+    def fmt_int(v):
+        x = pd.to_numeric(v, errors="coerce")
+        if pd.isna(x):
+            return ""
+        return f"{int(round(float(x))):,}".replace(",", " ")
+
+    def fmt_pct(v):
+        x = pd.to_numeric(v, errors="coerce")
+        if pd.isna(x):
+            return ""
+        val = float(x) * 100.0
+        cls = "pos" if val > 0 else "neg" if val < 0 else "zero"
+        sign = "+" if val > 0 else ""
+        return f"<span class='{cls}'>{sign}{val:.2f}%</span>"
+
+    def fmt_status(v):
+        s = str(v or "").strip().lower()
+        if s == "ok":
+            return "<span class='badge ok'>OK</span>"
+        if s in ("no_data", "nodata", "empty"):
+            return "<span class='badge bad'>NO DATA</span>"
+        if s:
+            return f"<span class='badge warn'>{s.upper()}</span>"
+        return "<span class='badge warn'>N/A</span>"
+
+    # colonnes percent -> spans colorés
+    for c in pct_cols:
+        if c in df.columns:
+            df[c] = df[c].apply(fmt_pct)
+
+    for c in num_cols:
+        if c in df.columns:
+            df[c] = df[c].apply(lambda v: fmt_num(v, 2))
+
+    for c in int_cols:
+        if c in df.columns:
+            df[c] = df[c].apply(fmt_int)
+
+    if "status" in df.columns:
+        df["status"] = df["status"].apply(fmt_status)
+
+    # Summary bullets (comme avant, mais propre)
     bullets = [ln[2:] for ln in summary_lines if ln.strip().startswith("- ")]
-    bullets_html = "".join([f"<li>{b.replace('**','').replace('`','')}</li>" for b in bullets])
+    bullets = [b.replace("**", "").replace("`", "") for b in bullets]
+    bullets_html = "".join([f"<li>{b}</li>" for b in bullets]) if bullets else "<li>—</li>"
+
+    # Table HTML (escape=False pour garder nos <span>)
+    table_html = df.to_html(index=False, escape=False, classes="report-table")
+
+    def kpi_line(label, row, col, is_pct=True):
+        if row is None or col not in row:
+            return f"<div class='kpi'><div class='kpi-label'>{label}</div><div class='kpi-value'>—</div></div>"
+        t = row.get("ticker", "—")
+        raw = row.get(col, None)
+        if is_pct:
+            val = fmt_pct(raw)
+        else:
+            val = fmt_num(raw, 2)
+        return f"<div class='kpi'><div class='kpi-label'>{label}</div><div class='kpi-value'>{t} · {val}</div></div>"
 
     html = f"""<!doctype html>
-<html>
+<html lang="fr">
 <head>
   <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>Daily Report — {stamp}</title>
   <style>
-    body {{ font-family: Arial, sans-serif; margin: 24px; }}
-    .small {{ color: #555; font-size: 12px; }}
-    .wrap {{ overflow-x: auto; border: 1px solid #eee; padding: 8px; }}
-    table {{ border-collapse: collapse; width: 100%; }}
-    th, td {{ border: 1px solid #ddd; padding: 6px 8px; text-align: right; white-space: nowrap; }}
-    th {{ background: #f5f5f5; position: sticky; top: 0; }}
-    td:first-child, th:first-child {{ text-align: left; }}
+    :root {{
+      --bg: #f6f8fb;
+      --panel: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --shadow: 0 1px 2px rgba(0,0,0,.06);
+      --ok-bg: #dcfce7; --ok-tx: #166534;
+      --bad-bg:#fee2e2; --bad-tx:#991b1b;
+      --wa-bg:#ffedd5; --wa-tx:#9a3412;
+      --pos:#059669; --neg:#dc2626; --zero:#374151;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      background: var(--bg);
+      color: var(--text);
+    }}
+    .container {{
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 22px 18px 46px;
+    }}
+    .header {{
+      background: #0b1220;
+      color: #f9fafb;
+      border-radius: 16px;
+      padding: 18px 18px;
+      box-shadow: var(--shadow);
+    }}
+    .header h1 {{
+      margin: 0;
+      font-size: 28px;
+      letter-spacing: .2px;
+    }}
+    .meta {{
+      margin-top: 8px;
+      color: rgba(249,250,251,.78);
+      font-size: 13px;
+      line-height: 1.35;
+    }}
+    .grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }}
+    .card {{
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px 14px;
+      box-shadow: var(--shadow);
+    }}
+    .card h2 {{
+      margin: 0 0 10px;
+      font-size: 16px;
+    }}
+    .small {{
+      color: var(--muted);
+      font-size: 12px;
+    }}
+
+    .kpi {{
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 10px 10px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: #fff;
+    }}
+    .kpi-label {{ color: var(--muted); font-size: 12px; }}
+    .kpi-value {{ font-weight: 700; font-size: 14px; }}
+
+    .pos {{ color: var(--pos); font-weight: 700; }}
+    .neg {{ color: var(--neg); font-weight: 700; }}
+    .zero {{ color: var(--zero); font-weight: 700; }}
+
+    .badge {{
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .3px;
+      white-space: nowrap;
+    }}
+    .badge.ok {{ background: var(--ok-bg); color: var(--ok-tx); }}
+    .badge.bad {{ background: var(--bad-bg); color: var(--bad-tx); }}
+    .badge.warn {{ background: var(--wa-bg); color: var(--wa-tx); }}
+
+    .wrap {{
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }}
+
+    table.report-table {{
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 13px;
+    }}
+    table.report-table thead th {{
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #f3f4f6;
+      color: #111827;
+      text-align: right;
+      padding: 10px 10px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }}
+    table.report-table tbody td {{
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--border);
+      text-align: right;
+      white-space: nowrap;
+      background: #fff;
+    }}
+    table.report-table tbody tr:nth-child(even) td {{
+      background: #fafafa;
+    }}
+    table.report-table td:first-child,
+    table.report-table th:first-child {{
+      text-align: left;
+    }}
+
+    ul {{ margin: 10px 0 0 18px; }}
+    li {{ margin: 6px 0; }}
+
+    .footer {{
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }}
   </style>
 </head>
 <body>
-  <h1>Daily Report — {stamp}</h1>
-  <div class="small">Generated by cron on Linux VM. Lookback: {lookback_days} days. Tickers: {", ".join(tickers)}</div>
+  <div class="container">
 
-  <h2>Summary</h2>
-  <ul>
-    {bullets_html}
-  </ul>
+    <div class="header">
+      <h1>Daily Report — {stamp}</h1>
+      <div class="meta">
+        Generated by cron on Linux VM · Lookback: {lookback_days} days · Tickers: {", ".join(tickers)}
+      </div>
+    </div>
 
-  <h2>Full Table</h2>
-  <div class="wrap">
-    {html_df.to_html(index=False)}
+    <div class="grid">
+      <div class="card">
+        <h2>Highlights</h2>
+        <div class="grid" style="margin-top:0;">
+          {kpi_line("Meilleure perf jour", best_day, "daily_return", is_pct=True)}
+          {kpi_line("Pire perf jour", worst_day, "daily_return", is_pct=True)}
+          {kpi_line("Plus volatil (20j ann.)", most_vol, "vol_20d_ann", is_pct=True)}
+          {kpi_line("Pire max drawdown", worst_dd, "max_drawdown", is_pct=True)}
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Summary</h2>
+        <ul>
+          {bullets_html}
+        </ul>
+        <div class="footer">Note: les colonnes return/vol/drawdown sont affichées en %.</div>
+      </div>
+    </div>
+
+    <div style="height:14px"></div>
+
+    <div class="card">
+      <h2>Full Table</h2>
+      <div class="wrap">
+        {table_html}
+      </div>
+      <div class="footer">Astuce: scroll horizontal si nécessaire.</div>
+    </div>
+
   </div>
-
-  <p class="small">Note: returns/vol/drawdown columns are expressed in % in this HTML file.</p>
 </body>
 </html>
 """
+
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(html)
+
 
 
 # ------------------------------------------------------------

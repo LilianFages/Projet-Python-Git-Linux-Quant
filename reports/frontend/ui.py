@@ -2,20 +2,40 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+
 
 _DATE_RE = re.compile(r"^daily_report_(\d{4}-\d{2}-\d{2})\.(csv|html|md)$")
 
 
 def _repo_root() -> Path:
-    # .../repo/reports/frontend/ui.py -> parents[2] = repo root
-    return Path(__file__).resolve().parents[2]
+    """
+    Remonte l'arbo pour retrouver la racine du repo.
+    Robuste même si tu bouges le module reports/.
+    """
+    here = Path(__file__).resolve()
+    for parent in [here] + list(here.parents):
+        if (parent / "main.py").exists():
+            return parent
+        if (parent / ".git").exists():
+            return parent
+    # fallback : dernier parent
+    return here.parents[-1]
 
 
 def _reports_dir() -> Path:
-    return _repo_root() / "reports" / "outputs"
+    """
+    On privilégie reports/outputs pour séparer le code (reports/frontend)
+    des artefacts générés.
+    """
+    root = _repo_root()
+    out = root / "reports" / "outputs"
+    if out.exists():
+        return out
+    return root / "reports"
 
 
 def _scan_reports(dir_path: Path) -> dict[str, dict[str, Path]]:
@@ -56,6 +76,7 @@ def render() -> None:
         st.code("bash scripts/run_daily_report_cron.sh")
         return
 
+    # Dates triées (plus récent en premier)
     dates = sorted(mapping.keys(), reverse=True)
 
     cols = st.columns([2, 1])
@@ -67,6 +88,7 @@ def render() -> None:
     files = mapping.get(date_sel, {})
     st.subheader(f"Rapport du {date_sel}")
 
+    # Downloads
     a1, a2, a3 = st.columns(3)
 
     if "html" in files:
@@ -74,7 +96,7 @@ def render() -> None:
         with a1:
             st.download_button(
                 label="Télécharger HTML",
-                data=_read_text(html_path),
+                data=html_path.read_bytes(),
                 file_name=html_path.name,
                 mime="text/html",
                 use_container_width=True,
@@ -104,24 +126,25 @@ def render() -> None:
 
     st.divider()
 
-    tabs = st.tabs(["Aperçu HTML", "Table (CSV)", "Markdown"])
+    # Markdown en premier = tab par défaut
+    tabs = st.tabs(["Markdown", "Aperçu HTML", "Table (CSV)"])
 
     with tabs[0]:
+        if "md" not in files:
+            st.info("Aucun fichier Markdown pour cette date.")
+        else:
+            st.markdown(_read_text(files["md"]))
+
+    with tabs[1]:
         if "html" not in files:
             st.info("Aucun fichier HTML pour cette date.")
         else:
             html = _read_text(files["html"])
-            components.html(html, height=900, scrolling=True)
+            components.html(html, height=950, scrolling=True)
 
-    with tabs[1]:
+    with tabs[2]:
         if "csv" not in files:
             st.info("Aucun fichier CSV pour cette date.")
         else:
             df = pd.read_csv(files["csv"])
             st.dataframe(df, use_container_width=True)
-
-    with tabs[2]:
-        if "md" not in files:
-            st.info("Aucun fichier Markdown pour cette date.")
-        else:
-            st.markdown(_read_text(files["md"]))
