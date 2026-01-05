@@ -21,6 +21,11 @@ BINANCE_SYMBOLS = {
 }
 
 
+def _now_paris_naive() -> pd.Timestamp:
+    """Timestamp 'now' en Europe/Paris, tz-naïf."""
+    return pd.Timestamp.now(tz="Europe/Paris").tz_localize(None)
+
+
 def _to_naive_paris(ts: Union[str, datetime, pd.Timestamp]) -> pd.Timestamp:
     """Timestamp tz-naïf en Europe/Paris."""
     t = pd.to_datetime(ts)
@@ -38,11 +43,9 @@ def _yf_period_for_intraday(span: pd.Timedelta, interval: str) -> str:
     Choix d'un `period=` robuste pour yfinance en intraday.
     On évite start/end (source d'ambiguïtés timezone et de fenêtres refusées).
     """
-    # Pour 1m, Yahoo est souvent limité à ~7 jours
     if interval == "1m":
         return "7d"
 
-    # Fenêtres usuelles
     if span <= pd.Timedelta(days=1):
         return "1d"
     if span <= pd.Timedelta(days=5):
@@ -52,7 +55,6 @@ def _yf_period_for_intraday(span: pd.Timedelta, interval: str) -> str:
     if span <= pd.Timedelta(days=30):
         return "1mo"
 
-    # Intraday Yahoo est souvent fiable jusqu'à ~60d sur 5m/15m/30m
     return "60d"
 
 
@@ -76,7 +78,6 @@ def _normalize_yf_df(df: pd.DataFrame) -> pd.DataFrame:
         }
     )
 
-    # Parfois yfinance renvoie déjà en minuscules selon versions
     cols_lower = {c: c.lower() for c in df.columns}
     df = df.rename(columns=cols_lower)
 
@@ -93,9 +94,9 @@ def _normalize_yf_df(df: pd.DataFrame) -> pd.DataFrame:
     df = df.loc[~df.index.isna()]
 
     # Convertir vers Europe/Paris naïf
-    # yfinance intraday est souvent tz-aware ; daily parfois tz-naïf.
+    # yfinance intraday est souvent tz-aware ; daily souvent tz-naïf.
     if getattr(df.index, "tz", None) is None:
-        # hypothèse cohérente et stable avec ton projet
+        # Par défaut (et pour rester compatible avec ton existant), on suppose UTC
         df.index = df.index.tz_localize("UTC")
     else:
         df.index = df.index.tz_convert("UTC")
@@ -230,11 +231,6 @@ def _fetch_ohlcv_binance(
     df = df[(df.index >= start_naive) & (df.index <= end_naive)]
     df.index.name = "date"
 
-    if df.empty:
-        # fallback: renvoyer les dernières bougies disponibles plutôt que vide
-        # (cas rare sur binance mais possible si fenêtre trop étroite)
-        return df
-
     return df
 
 
@@ -261,8 +257,22 @@ def fetch_ohlcv(
     if symbol in BINANCE_SYMBOLS:
         return _fetch_ohlcv_binance(BINANCE_SYMBOLS[symbol], start, end, interval)
 
+    now_paris = _now_paris_naive()
+
     start_naive = _to_naive_paris(start)
     end_naive = _to_naive_paris(end)
+
+    # --------- GARDE-FOUS ANTI-FUTUR (clé pour ta page 2) ----------
+    if start_naive > now_paris:
+        start_naive = now_paris
+    if end_naive > now_paris:
+        end_naive = now_paris
+
+    # Si l'appel upstream a inversé / décalé les dates, on sécurise sans planter.
+    if start_naive > end_naive:
+        # fallback minimal : 1 jour de données avant end
+        start_naive = end_naive - pd.Timedelta(days=1)
+    # ---------------------------------------------------------------
 
     intraday = _is_intraday(interval)
 
@@ -283,36 +293,41 @@ def fetch_ohlcv(
         df = _normalize_yf_df(raw)
 
         if df.empty:
-            raise ValueError(f"Aucune donnée retournée pour {symbol} (intraday {interval}, period={period}).")
+            raise ValueError(
+                f"Aucune donnée retournée pour {symbol} (intraday {interval}, period={period})."
+            )
 
         sliced = df.loc[(df.index >= start_naive) & (df.index <= end_naive)]
         if not sliced.empty:
             return sliced
 
-        # Fallback marché fermé / fenêtre hors cotation :
-        # renvoyer les dernières bougies disponibles (évite l'erreur UI)
-        if span <= pd.Timedelta(days=1):
-            cutoff = df.index.max() - pd.Timedelta(days=1)
-            out = df.loc[df.index >= cutoff]
-            return out if not out.empty else df.tail(500)
+        # Marché fermé / fenêtre hors cotation : renvoyer du récent plutôt que vide
+        cutoff = df.index.max() - pd.Timedelta(days=1)
+        out = df.loc[df.index >= cutoff]
+        return out if not out.empty else df.tail(500)
 
-        if span <= pd.Timedelta(days=5):
-            cutoff = df.index.max() - pd.Timedelta(days=5)
-            out = df.loc[df.index >= cutoff]
-            return out if not out.empty else df.tail(2000)
-
-        return df.tail(5000)
-
-    # --- Yahoo daily : start/end (en dates), plus stable ---
-    # On élargit end d'un jour pour inclure la journée end_naive
+    # --- Yahoo daily : start/end (end exclusif), avec cap anti-futur ---
+    # NB: yfinance end est EXCLUSIF. On met +1 jour pour inclure le jour end_naive.
     start_date = start_naive.normalize().date()
-    end_date = (end_naive.normalize() + pd.Timedelta(days=1)).date()
+    end_exclusive = (end_naive.normalize() + pd.Timedelta(days=1)).date()
+
+    # cap dur : ne jamais dépasser (au plus) demain en "exclusive"
+    # (si end_naive = aujourd'hui, demain exclusive est normal)
+    max_end_exclusive = (now_paris.normalize() + pd.Timedelta(days=1)).date()
+    if end_exclusive > max_end_exclusive:
+        end_exclusive = max_end_exclusive
+
+    # sécurité : fenêtre au moins 1 jour
+    if end_exclusive <= start_date:
+        end_exclusive = (start_date + pd.Timedelta(days=1)).date()
+        if end_exclusive > max_end_exclusive:
+            end_exclusive = max_end_exclusive
 
     raw = yf.download(
         symbol,
         start=start_date,
-        end=end_date,
-        interval=interval,
+        end=end_exclusive,
+        interval="1d",
         auto_adjust=True,
         progress=False,
         threads=False,
@@ -320,12 +335,12 @@ def fetch_ohlcv(
     df = _normalize_yf_df(raw)
 
     if df.empty:
-        raise ValueError(f"Aucune donnée retournée pour {symbol} (daily {interval}).")
+        raise ValueError(f"Aucune donnée retournée pour {symbol} (daily 1d).")
 
     # Slice final exact sur fenêtre demandée
-    df = df.loc[(df.index >= start_naive) & (df.index <= end_naive)]
-    if df.empty:
-        # fallback : renvoyer le df non slicé (ex: end avant close du jour)
-        return _normalize_yf_df(raw)
+    sliced = df.loc[(df.index >= start_naive.normalize()) & (df.index <= end_naive)]
+    if not sliced.empty:
+        return sliced
 
+    # fallback : renvoyer le df non slicé (ex: dernière bougie pas encore publiée)
     return df
