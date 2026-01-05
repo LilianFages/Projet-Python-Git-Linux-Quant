@@ -25,6 +25,9 @@ from app.quant_a.backend.optimization import optimize_sma, optimize_rsi, optimiz
 # --- NEW: Persist portfolio state for daily report (Option B) ---
 from app.common.portfolio_state import save_portfolio_state
 
+# --- NEW: fallback loader (pour éviter crash Markowitz si un ticker daily est indisponible)
+from app.common.data_loader import load_price_data
+
 
 # =========================================================
 # CALLBACKS (Gestion État Interface)
@@ -162,24 +165,55 @@ def render():
 
         if c_opt2.button("Calculer Poids Optimaux"):
             with st.spinner("Optimisation mathématique en cours..."):
-                # 2 ans d'historique
-                start_opt = datetime.now() - timedelta(days=365 * 2)
-                end_opt = datetime.now()
+                # 2 ans d'historique, mais fin "safe" (J-1) pour éviter bougie daily manquante
+                end_opt = datetime.now() - timedelta(days=1)
+                start_opt = end_opt - timedelta(days=365 * 2)
 
                 # Temp config équipondéré (les valeurs seront normalisées dans le backend si besoin)
                 temp_config = {k: 1.0 for k in current_assets.keys()}
 
                 # Récupération des prix raw via build_portfolio_data_full (nécessaire pour Markowitz)
-                df_prices_opt, _, _ = build_portfolio_data_full(
-                    temp_config,
-                    start_opt,
-                    end_opt,
-                    interval="1d",
-                    progress_hook=None,
-                    base=100.0,
-                )
+                df_prices_opt = None
+                missing_tickers = []
 
-                if df_prices_opt is not None and not df_prices_opt.empty:
+                try:
+                    df_prices_opt, _, _ = build_portfolio_data_full(
+                        temp_config,
+                        start_opt,
+                        end_opt,
+                        interval="1d",
+                        progress_hook=None,
+                        base=100.0,
+                    )
+                except ValueError:
+                    # Fallback UI-only: on charge ticker par ticker pour ne pas faire planter l'app
+                    data = {}
+                    for t in temp_config.keys():
+                        try:
+                            df_t = load_price_data(t, start_opt, end_opt, interval="1d")
+                            if df_t is not None and not df_t.empty and "close" in df_t.columns:
+                                s = df_t["close"].copy()
+                                s.name = t
+                                data[t] = s
+                            else:
+                                missing_tickers.append(t)
+                        except Exception:
+                            missing_tickers.append(t)
+
+                    if data:
+                        df_prices_opt = pd.concat(data.values(), axis=1)
+                        df_prices_opt.columns = list(data.keys())
+                        df_prices_opt = df_prices_opt.dropna().sort_index()
+                    else:
+                        df_prices_opt = pd.DataFrame()
+
+                if missing_tickers:
+                    st.warning("Actifs ignorés (données indisponibles sur la période) : " + ", ".join(missing_tickers))
+
+                # Besoin d'au moins 2 actifs valides pour Markowitz
+                if df_prices_opt is None or df_prices_opt.empty or df_prices_opt.shape[1] < 2:
+                    st.error("Pas assez de données pour optimiser (au moins 2 actifs valides requis).")
+                else:
                     best_weights = optimize_weights(
                         df_prices_opt,
                         "Max Sharpe" if obj == "Max Sharpe Ratio" else "Min Vol",
@@ -194,8 +228,6 @@ def render():
                     _persist_portfolio_state(meta={"source": "quant_b_ui", "event": "markowitz_opt", "objective": obj})
 
                     st.rerun()
-                else:
-                    st.error("Pas assez de données pour optimiser.")
 
     # --- TABLEAU MANUEL DES POIDS ---
     st.markdown("---")
