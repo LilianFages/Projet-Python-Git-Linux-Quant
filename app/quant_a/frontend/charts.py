@@ -88,6 +88,20 @@ def make_price_chart(
     )
     volume_opacity_condition = alt.condition(volume_toggle_param, alt.value(0.3), alt.value(0.0))
 
+    # ---------------------------------------------------------
+    # Bornes réelles (pour éviter "queue" / marges en temps compressé)
+    # ---------------------------------------------------------
+    real_min = None
+    real_max = None
+    if isinstance(df_base.index, pd.DatetimeIndex) and len(df_base.index) > 0:
+        real_min = pd.to_datetime(df_base.index.min())
+        real_max = pd.to_datetime(df_base.index.max())
+    else:
+        tmp_bounds = _ensure_date_column(df_base, "date")
+        if tmp_bounds is not None and not tmp_bounds.empty and "date" in tmp_bounds.columns:
+            real_min = pd.to_datetime(tmp_bounds["date"].min())
+            real_max = pd.to_datetime(tmp_bounds["date"].max())
+
     # =========================================================
     # CAS 1 : 5 jours -> temps compressé (Actions/ETF/Indices)
     # =========================================================
@@ -104,9 +118,31 @@ def make_price_chart(
         if df_plot.empty:
             return None
 
-        if "bar_index" not in df_plot.columns:
-            df_plot = df_plot.reset_index(drop=True)
-            df_plot["bar_index"] = range(len(df_plot))
+        # --- FIX: tronquer au dernier point réellement disponible (évite la "queue") ---
+        if real_min is not None and real_max is not None:
+            df_plot = df_plot[(df_plot["date"] >= real_min) & (df_plot["date"] <= real_max)].reset_index(drop=True)
+            if df_plot.empty:
+                return None
+
+        # --- FIX complémentaire (US 5j) : supprimer les barres vides au début/fin ---
+        # Sinon Altair commence la ligne au 1er close non-NaN => "vide" à gauche
+        df_plot = df_plot.reset_index(drop=True)
+        if "close" in df_plot.columns:
+            valid = df_plot["close"].notna().to_numpy()
+            if valid.any():
+                i0 = int(np.argmax(valid))  # 1er True
+                i1 = int(len(valid) - 1 - np.argmax(valid[::-1]))  # dernier True
+                df_plot = df_plot.iloc[i0:i1 + 1].reset_index(drop=True)
+            else:
+                return None
+
+        # Recalcul bar_index après trim (évite décalages)
+        df_plot = df_plot.reset_index(drop=True)
+        df_plot["bar_index"] = range(len(df_plot))
+
+        # Axe X strict (pas de marge / pas de "nice")
+        max_idx = int(df_plot["bar_index"].max()) if len(df_plot) else 1
+        x_scale = alt.Scale(domain=[0, max_idx], nice=False, padding=0)
 
         # Ticks (un label par jour)
         df_ticks = df_plot.copy()
@@ -122,7 +158,7 @@ def make_price_chart(
 
         x_axis_custom = alt.Axis(values=tick_indices, labelExpr=label_expr, title="Date", grid=False)
 
-        base = alt.Chart(df_plot).encode(x=alt.X("bar_index:Q", axis=x_axis_custom))
+        base = alt.Chart(df_plot).encode(x=alt.X("bar_index:Q", axis=x_axis_custom, scale=x_scale))
 
         # --- Bougies ---
         if chart_style == "Bougies" and {"open", "high", "low"}.issubset(df_plot.columns):
@@ -184,8 +220,13 @@ def make_price_chart(
             alt.Chart(df_plot)
             .mark_line()
             .encode(
-                x=alt.X("bar_index:Q", axis=x_axis_custom),
-                y=alt.Y("close:Q", title="Prix", scale=alt.Scale(domain=[y_min - padding, y_max + padding]), axis=alt.Axis(grid=True)),
+                x=alt.X("bar_index:Q", axis=x_axis_custom, scale=x_scale),
+                y=alt.Y(
+                    "close:Q",
+                    title="Prix",
+                    scale=alt.Scale(domain=[y_min - padding, y_max + padding]),
+                    axis=alt.Axis(grid=True),
+                ),
                 tooltip=[
                     alt.Tooltip("date:T", title="Date/heure réelle", format="%d/%m/%Y %H:%M"),
                     alt.Tooltip("close:Q", title="Clôture", format=",.2f"),
@@ -193,6 +234,7 @@ def make_price_chart(
             )
             .interactive()
         )
+
 
     # =========================================================
     # CAS 2 : 1 mois -> temps compressé (Actions/ETF/Indices, Forex, Commodities intraday ok)
@@ -220,9 +262,19 @@ def make_price_chart(
         if df_plot.empty:
             return None
 
-        if "bar_index" not in df_plot.columns:
-            df_plot = df_plot.reset_index(drop=True)
-            df_plot["bar_index"] = range(len(df_plot))
+        # --- FIX: tronquer au dernier point réellement disponible (évite la "queue") ---
+        if real_min is not None and real_max is not None:
+            df_plot = df_plot[(df_plot["date"] >= real_min) & (df_plot["date"] <= real_max)].reset_index(drop=True)
+            if df_plot.empty:
+                return None
+
+        # Recalcul bar_index après trim (évite décalages)
+        df_plot = df_plot.reset_index(drop=True)
+        df_plot["bar_index"] = range(len(df_plot))
+
+        # Axe X strict (pas de marge / pas de "nice")
+        max_idx = int(df_plot["bar_index"].max()) if len(df_plot) else 1
+        x_scale = alt.Scale(domain=[0, max_idx], nice=False, padding=0)
 
         # Ticks (6 labels environ)
         df_ticks = df_plot.copy()
@@ -241,7 +293,7 @@ def make_price_chart(
 
         x_axis_custom = alt.Axis(values=tick_indices, labelExpr=label_expr, title="Date", grid=False)
 
-        base = alt.Chart(df_plot).encode(x=alt.X("bar_index:Q", axis=x_axis_custom))
+        base = alt.Chart(df_plot).encode(x=alt.X("bar_index:Q", axis=x_axis_custom, scale=x_scale))
 
         # --- Bougies ---
         if chart_style == "Bougies" and {"open", "high", "low"}.issubset(df_plot.columns):
@@ -301,7 +353,7 @@ def make_price_chart(
             alt.Chart(df_plot)
             .mark_line()
             .encode(
-                x=alt.X("bar_index:Q", axis=x_axis_custom),
+                x=alt.X("bar_index:Q", axis=x_axis_custom, scale=x_scale),
                 y=alt.Y("close:Q", title="Prix", scale=alt.Scale(domain=[y_min - padding, y_max + padding]), axis=alt.Axis(grid=True)),
                 tooltip=[
                     alt.Tooltip("date:T", title="Date/heure réelle", format="%d/%m/%Y %H:%M"),
