@@ -23,8 +23,10 @@ if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   PYTHON_BIN="python3"
 fi
 
-mkdir -p logs reports
+mkdir -p logs reports/outputs
 
-# Run and log
-"$PYTHON_BIN" scripts/daily_report.py >> logs/daily_report.log 2>&1
-echo "[OK] run_daily_report.sh executed"
+STAMP="$(date '+%Y-%m-%d_%H-%M-%S')"
+LOG_FILE="logs/daily_report_${STAMP}.log"
+
+"$PYTHON_BIN" scripts/daily_report.py >> "$LOG_FILE" 2>&1
+echo "[OK] run_daily_report_cron.sh executed — log: $LOG_FILE"

@@ -331,7 +331,7 @@ def main():
     rows = [compute_asset_report(t, start_date=start_date, end_date=end_date) for t in tickers]
     report_df = pd.DataFrame(rows)
 
-    reports_dir = os.path.join(REPO_ROOT, "reports")
+    reports_dir = os.path.join(REPO_ROOT, "reports", "outputs")
     logs_dir = os.path.join(REPO_ROOT, "logs")
     os.makedirs(reports_dir, exist_ok=True)
     os.makedirs(logs_dir, exist_ok=True)
@@ -341,6 +341,7 @@ def main():
     csv_path = os.path.join(reports_dir, f"daily_report_{stamp}.csv")
     md_path = os.path.join(reports_dir, f"daily_report_{stamp}.md")
     html_path = os.path.join(reports_dir, f"daily_report_{stamp}.html")
+
 
     report_df.to_csv(csv_path, index=False)
 
