@@ -361,7 +361,7 @@ def render():
         st.metric("Performance Totale Portefeuille", f"{perf_total:+.2%}")
 
         # ---------------------------------------------------------
-        # 3bis. PORTFOLIO METRICS & DIVERSIFICATION (SUJET)
+        # 3bis. PORTFOLIO METRICS & DIVERSIFICATION (UI POLISH)
         # ---------------------------------------------------------
         st.markdown("---")
         st.subheader("Portfolio Metrics & Diversification")
@@ -373,32 +373,51 @@ def render():
             risk_free_rate=0.02,
         )
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total Return", f"{analytics.total_return:+.2%}")
-        c2.metric("CAGR", f"{analytics.cagr:+.2%}")
-        c3.metric("Volatilité (ann.)", f"{analytics.volatility:.2%}")
-        c4.metric("Sharpe", f"{analytics.sharpe_ratio:.2f}")
+        # --- Grille 3×3 (plus de métrique orpheline)
+        r1c1, r1c2, r1c3 = st.columns(3)
+        r1c1.metric("Total Return", f"{analytics.total_return:+.2%}")
+        r1c2.metric("CAGR", f"{analytics.cagr:+.2%}")
+        r1c3.metric("Volatilité (ann.)", f"{analytics.volatility:.2%}")
 
-        c5, c6, c7, c8 = st.columns(4)
-        c5.metric("Max Drawdown", f"{analytics.max_drawdown:.2%}")
-        c6.metric("Rendement ann. (hist.)", f"{analytics.expected_annual_return_hist:+.2%}")
-        c7.metric("Vol ann. (hist.)", f"{analytics.portfolio_vol_annual:.2%}")
-        c8.metric("Diversification Ratio", f"{analytics.diversification_ratio:.2f}")
+        r2c1, r2c2, r2c3 = st.columns(3)
+        r2c1.metric("Sharpe", f"{analytics.sharpe_ratio:.2f}")
+        r2c2.metric("Max Drawdown", f"{analytics.max_drawdown:.2%}")
+        r2c3.metric("Diversification Ratio", f"{analytics.diversification_ratio:.2f}")
 
-        st.metric("Neff (effective holdings)", f"{analytics.effective_n:.2f}")
-        st.caption(
-            "Corrélations calculées sur les rendements journaliers. "
-            "Diversification Ratio > 1 indique un effet de diversification. "
-            "Neff = nombre effectif de lignes (inverse Herfindahl)."
-        )
+        r3c1, r3c2, r3c3 = st.columns(3)
+        r3c1.metric("Neff (effective holdings)", f"{analytics.effective_n:.2f}")
+        r3c2.metric("Rendement ann. (hist.)", f"{analytics.expected_annual_return_hist:+.2%}")
+        r3c3.metric("Vol ann. (hist.)", f"{analytics.portfolio_vol_annual:.2%}")
 
-        with st.expander("Correlation matrix (returns)", expanded=False):
+        with st.expander("Notes de calcul", expanded=False):
+            st.caption(
+                "Corrélations calculées sur les rendements journaliers. "
+                "Diversification Ratio > 1 indique un effet de diversification. "
+                "Neff = nombre effectif de lignes (inverse Herfindahl)."
+            )
+
+        # --- Corrélations : direct si peu d'actifs, expander sinon
+        n_assets = 0
+        try:
+            n_assets = int(analytics.corr_matrix.shape[0]) if analytics.corr_matrix is not None else 0
+        except Exception:
+            n_assets = 0
+
+        if 1 <= n_assets <= 8:
+            st.markdown("**Correlation matrix (returns)**")
             st.altair_chart(make_corr_heatmap(analytics.corr_matrix), use_container_width=True)
+        else:
+            with st.expander("Correlation matrix (returns)", expanded=False):
+                st.altair_chart(make_corr_heatmap(analytics.corr_matrix), use_container_width=True)
 
+        # --- Allocation / Risk contributions
         colA, colB = st.columns(2)
         with colA:
             st.markdown("**Poids du portefeuille**")
-            st.altair_chart(make_bar(analytics.weights * 100.0, "Poids (%)", value_format=".2f"), use_container_width=True)
+            st.altair_chart(
+                make_bar(analytics.weights * 100.0, "Poids (%)", value_format=".2f"),
+                use_container_width=True,
+            )
         with colB:
             st.markdown("**Risk contributions (vol)**")
             st.altair_chart(
@@ -406,6 +425,7 @@ def render():
                 use_container_width=True,
             )
 
+        # --- Tableau : dans un expander pour alléger visuellement
         tbl = pd.DataFrame(
             {
                 "Weight": analytics.weights,
@@ -413,10 +433,12 @@ def render():
                 "RiskContrib%": analytics.risk_contrib_pct.reindex(analytics.weights.index),
             }
         )
-        st.dataframe(
-            tbl.style.format({"Weight": "{:.2%}", "Ann.Vol": "{:.2%}", "RiskContrib%": "{:.2%}"}),
-            use_container_width=True,
-        )
+
+        with st.expander("Détails (table)", expanded=False):
+            st.dataframe(
+                tbl.style.format({"Weight": "{:.2%}", "Ann.Vol": "{:.2%}", "RiskContrib%": "{:.2%}"}),
+                use_container_width=True,
+            )
 
         # ---------------------------------------------------------
         # 4. BACKTEST & OPTIMISATION STRATÉGIE
