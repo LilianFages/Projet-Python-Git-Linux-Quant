@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 from pathlib import Path
 from typing import Union
@@ -5,6 +7,7 @@ from typing import Union
 import pandas as pd
 
 from app.common.data_source import fetch_ohlcv
+
 
 CACHE_DIR = Path(__file__).resolve().parent / "cache"
 CACHE_DIR.mkdir(exist_ok=True)
@@ -15,40 +18,18 @@ def _cache_path(symbol: str, interval: str) -> Path:
 
 
 def _to_naive_paris(ts: Union[str, datetime, pd.Timestamp]) -> pd.Timestamp:
-    """
-    Normalise en Timestamp timezone-naïf (référentiel Europe/Paris).
-    Important pour éviter les comparaisons tz-aware vs tz-naïf.
-    """
+    """Timestamp tz-naïf en Europe/Paris."""
     t = pd.to_datetime(ts)
     if getattr(t, "tz", None) is not None:
-        # Si tz-aware, on convertit vers Europe/Paris puis on rend naïf
         t = t.tz_convert("Europe/Paris").tz_localize(None)
     return t
 
 
-def _normalize_index_to_naive_paris(df: pd.DataFrame) -> pd.DataFrame:
-    if df is None or df.empty:
-        return df
-    if not isinstance(df.index, pd.DatetimeIndex):
-        df.index = pd.to_datetime(df.index, errors="coerce")
-    # si tz-aware -> Europe/Paris puis naïf
-    if getattr(df.index, "tz", None) is not None:
-        df.index = df.index.tz_convert("Europe/Paris").tz_localize(None)
-    return df
-
-
 def _interval_step(interval: str) -> pd.Timedelta:
-    """
-    Petit delta pour éviter de re-télécharger un point déjà présent.
-    """
-    # Cas standards dans ton projet : "1d" et "5m"
     if interval.endswith("m"):
-        minutes = int(interval[:-1])
-        return pd.Timedelta(minutes=minutes)
+        return pd.Timedelta(minutes=int(interval[:-1]))
     if interval.endswith("h"):
-        hours = int(interval[:-1])
-        return pd.Timedelta(hours=hours)
-    # fallback jour
+        return pd.Timedelta(hours=int(interval[:-1]))
     return pd.Timedelta(days=1)
 
 
@@ -59,27 +40,33 @@ def load_price_data(
     interval: str = "1d",
     use_cache: bool = True,
 ) -> pd.DataFrame:
+    # 0) Pas de cache disque en intraday (trop instable)
+    if interval != "1d":
+        use_cache = False
+
     cache_file = _cache_path(symbol, interval)
 
-    start_dt = pd.to_datetime(start)
-    end_dt = pd.to_datetime(end)
+    start_dt = _to_naive_paris(start)
+    end_dt = _to_naive_paris(end)
 
-    # --- IMPORTANT : pour le daily, on neutralise l'effet "heure"
-    # sinon "1 jour" peut filtrer toutes les bougies (start = hier 17:05)
-    if interval.endswith("d"):
-        start_dt = start_dt.normalize()  # 00:00
-        # inclure toute la journée de end_dt
+    if start_dt > end_dt:
+        raise ValueError(f"start > end pour {symbol}: {start_dt} > {end_dt}")
+
+    # 1) Bornes daily robustes (évite filtres vides liés à l'heure)
+    if interval == "1d":
+        start_dt = start_dt.normalize()
         end_dt = end_dt.normalize() + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+
+    step = _interval_step(interval)
 
     df: pd.DataFrame | None = None
 
-    # 1) Lire cache si possible
+    # 2) Lire cache (uniquement daily)
     if use_cache and cache_file.exists():
         try:
             df = pd.read_csv(cache_file, parse_dates=["date"], index_col="date")
             df = df.sort_index()
             df = df[~df.index.duplicated(keep="last")]
-            # cache vide/corrompu => on supprime
             if df.empty:
                 cache_file.unlink(missing_ok=True)
                 df = None
@@ -87,22 +74,10 @@ def load_price_data(
             cache_file.unlink(missing_ok=True)
             df = None
 
-    # Helper: step selon interval pour éviter le point dupliqué
-    def _step(iv: str) -> pd.Timedelta:
-        if iv.endswith("m"):
-            return pd.Timedelta(minutes=int(iv[:-1]))
-        if iv.endswith("h"):
-            return pd.Timedelta(hours=int(iv[:-1]))
-        return pd.Timedelta(days=1)
-
-    step = _step(interval)
-
-    # 2) Si pas de cache => download direct
+    # 3) Si pas de cache -> fetch direct
     if df is None:
         df = fetch_ohlcv(symbol, start_dt, end_dt, interval)
-
         if df is None or df.empty:
-            # ne pas écrire un cache vide
             raise ValueError(f"Aucune donnée retournée pour {symbol}.")
 
         df = df.sort_index()
@@ -111,7 +86,7 @@ def load_price_data(
         if use_cache:
             df.to_csv(cache_file, index_label="date")
 
-    # 3) Si cache existe, le compléter si nécessaire (backfill + forward-fill)
+    # 4) Si cache daily existe -> backfill/forward-fill si nécessaire
     else:
         cache_min = df.index.min()
         cache_max = df.index.max()
@@ -135,11 +110,16 @@ def load_price_data(
         if use_cache:
             df.to_csv(cache_file, index_label="date")
 
-    # 4) Filtrer fenêtre demandée
+    # 5) Filtre final fenêtre demandée
     df = df.loc[(df.index >= start_dt) & (df.index <= end_dt)]
 
+    # Fallback ultime (évite un écran d'erreur si la fenêtre exacte est vide)
     if df.empty:
+        # intraday: renvoyer les dernières bougies
+        if interval != "1d":
+            full = fetch_ohlcv(symbol, start_dt, end_dt, interval)
+            if full is not None and not full.empty:
+                return full.tail(500)
         raise ValueError(f"Aucune donnée retournée pour {symbol}.")
 
     return df
-
