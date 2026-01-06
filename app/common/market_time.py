@@ -4,7 +4,7 @@ from datetime import datetime, time as dtime
 import pandas as pd
 
 
-# 🔹 Heures d'ouverture de marché (heure de Paris)
+#  Heures d'ouverture de marché (heure de Paris)
 MARKET_HOURS = {
     "S&P 500": (dtime(15, 30), dtime(21, 45)),  # NYSE/Nasdaq en heure de Paris
     "CAC 40": (dtime(9, 0), dtime(17, 30)),
@@ -17,7 +17,7 @@ MARKET_HOURS = {
 }
 
 
-# 🔹 Mapping symbole Yahoo -> marché boursier utilisé pour filtrage intraday
+#  Mapping symbole Yahoo -> marché boursier utilisé pour filtrage intraday
 INDEX_MARKET_MAP = {
     "^FCHI": "CAC 40",      # CAC 40
     "^GSPC": "S&P 500",     # S&P 500
@@ -129,7 +129,8 @@ def filter_market_hours_and_weekends(
         end_str = close_t.strftime("%H:%M")
 
         # 2) Pour les périodes intraday : garder seulement les heures d'ouverture
-        if period_label in ("1 jour", "5 jours", "1 mois"):
+        #  FIX: ne pas appliquer between_time en daily (interval == "1d"), sinon DF vidé.
+        if period_label in ("1 jour", "5 jours", "1 mois") and interval != "1d":
             df = df.between_time(start_str, end_str)
 
         if df.empty:
@@ -169,18 +170,6 @@ def build_compressed_intraday_df(
     """
     Construit un DataFrame intraday 'temps de marché compressé'.
 
-    - Pour les indices actions (S&P 500, CAC 40) :
-        - enlève week-ends
-        - garde uniquement heures d'ouverture (MARKET_HOURS)
-        - resample à freq à l'intérieur de chaque séance
-        - reconstruit une timeline de trading sans nuits/week-ends
-        - ajoute bar_index = 0,1,2,... (axe X compressé)
-
-    - Pour le Forex (equity_index == "FOREX") et COMMODITIES :
-        - enlève week-ends
-        - conserve toutes les heures où ça cote en semaine (jours complets)
-        - resample à freq globalement
-        - ajoute bar_index = 0,1,2,... (axe X compressé, week-ends supprimés)
     """
     if df.empty:
         return pd.DataFrame()
@@ -215,7 +204,7 @@ def build_compressed_intraday_df(
         df_full["date"] = pd.to_datetime(df_full["date"])
         return df_full
 
-    # 🔹 Branche par défaut : indices actions (S&P 500, CAC 40, etc.)
+    #  Branche par défaut : indices actions (S&P 500, CAC 40, etc.)
     if equity_index not in MARKET_HOURS:
         return pd.DataFrame()
 

@@ -52,12 +52,21 @@ def load_price_data(
     if start_dt > end_dt:
         raise ValueError(f"start > end pour {symbol}: {start_dt} > {end_dt}")
 
-    # 1) Bornes daily robustes (évite filtres vides liés à l'heure)
+    step = _interval_step(interval)
+
+    # 1) Bornes daily robustes
+    # En daily, on travaille en "end exclusif" (start <= t < end_excl).
+    # Si end est aujourd'hui, on exclut le jour courant (pas de bougie daily avant clôture).
     if interval == "1d":
         start_dt = start_dt.normalize()
-        end_dt = end_dt.normalize() + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
 
-    step = _interval_step(interval)
+        today = pd.Timestamp.now().normalize()  # tz-naïf local, cohérent avec _to_naive_paris()
+        end_day = end_dt.normalize()
+
+        if end_day < today:
+            end_dt = end_day + pd.Timedelta(days=1)  # inclure end_day
+        else:
+            end_dt = today  # exclure le jour courant
 
     df: pd.DataFrame | None = None
 
@@ -74,6 +83,12 @@ def load_price_data(
             cache_file.unlink(missing_ok=True)
             df = None
 
+    # Normalisation de l'index daily dès que df est chargé (cache)
+    if df is not None and interval == "1d":
+        df.index = pd.to_datetime(df.index).normalize()
+        df = df.sort_index()
+        df = df[~df.index.duplicated(keep="last")]
+
     # 3) Si pas de cache -> fetch direct
     if df is None:
         df = fetch_ohlcv(symbol, start_dt, end_dt, interval)
@@ -82,6 +97,11 @@ def load_price_data(
 
         df = df.sort_index()
         df = df[~df.index.duplicated(keep="last")]
+
+        if interval == "1d":
+            df.index = pd.to_datetime(df.index).normalize()
+            df = df.sort_index()
+            df = df[~df.index.duplicated(keep="last")]
 
         if use_cache:
             df.to_csv(cache_file, index_label="date")
@@ -93,29 +113,55 @@ def load_price_data(
 
         missing_ranges: list[tuple[pd.Timestamp, pd.Timestamp]] = []
 
+        # Besoin côté début
         if start_dt < cache_min:
             missing_ranges.append((start_dt, cache_min - step))
-        if end_dt > cache_max:
-            missing_ranges.append((cache_max + step, end_dt))
+
+        # Besoin côté fin (daily end exclusif => dernier jour requis = end_dt - step)
+        if interval == "1d":
+            last_needed = end_dt - step
+            if last_needed > cache_max:
+                missing_ranges.append((cache_max + step, last_needed))
+        else:
+            if end_dt > cache_max:
+                missing_ranges.append((cache_max + step, end_dt))
 
         for s, e in missing_ranges:
             if s <= e:
-                part = fetch_ohlcv(symbol, s, e, interval)
+                try:
+                    part = fetch_ohlcv(symbol, s, e, interval)
+                except Exception:
+                    # Ne pas faire échouer tout le chargement si l'extension échoue
+                    # (ex: tentative de récupérer une bougie daily non encore publiée).
+                    part = None
+
                 if part is not None and not part.empty:
+                    if interval == "1d":
+                        part.index = pd.to_datetime(part.index).normalize()
+                        part = part.sort_index()
+                        part = part[~part.index.duplicated(keep="last")]
+
                     df = pd.concat([df, part], axis=0)
 
         df = df.sort_index()
         df = df[~df.index.duplicated(keep="last")]
 
+        if interval == "1d":
+            df.index = pd.to_datetime(df.index).normalize()
+            df = df.sort_index()
+            df = df[~df.index.duplicated(keep="last")]
+
         if use_cache:
             df.to_csv(cache_file, index_label="date")
 
     # 5) Filtre final fenêtre demandée
-    df = df.loc[(df.index >= start_dt) & (df.index <= end_dt)]
+    if interval == "1d":
+        df = df.loc[(df.index >= start_dt) & (df.index < end_dt)]
+    else:
+        df = df.loc[(df.index >= start_dt) & (df.index <= end_dt)]
 
-    # Fallback ultime (évite un écran d'erreur si la fenêtre exacte est vide)
+    # Fallback ultime
     if df.empty:
-        # intraday: renvoyer les dernières bougies
         if interval != "1d":
             full = fetch_ohlcv(symbol, start_dt, end_dt, interval)
             if full is not None and not full.empty:
