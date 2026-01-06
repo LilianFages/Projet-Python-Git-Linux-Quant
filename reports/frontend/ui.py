@@ -73,7 +73,7 @@ def render() -> None:
             f"Aucun rapport trouvé dans {rep_dir}. "
             "Exécute le script de génération (cron) ou lance-le manuellement."
         )
-        st.code("bash scripts/run_daily_report_cron.sh")
+        st.code("bash scripts/run_daily_report.sh")
         return
 
     # Dates triées (plus récent en premier)
