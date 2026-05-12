@@ -10,6 +10,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from pathlib import Path
+import json
+import math
 
 # ------------------------------------------------------------
 # Project import plumbing (cron/systemd safe)
@@ -33,6 +35,43 @@ def find_repo_root() -> str:
 
 
 REPO_ROOT = find_repo_root()
+
+# ------------------------------------------------------------
+# Sprint 2 — Macro / Cross-Asset config
+# ------------------------------------------------------------
+MACRO_CONTEXT_PATH = Path(REPO_ROOT) / "reports" / "data" / "macro_context.json"
+
+MACRO_UNIVERSE = {
+    "Equity": {
+        "S&P 500": "^GSPC",
+        "Nasdaq": "^IXIC",
+        "Dow Jones": "^DJI",
+        "CAC 40": "^FCHI",
+        "DAX": "^GDAXI",
+        "Nikkei 225": "^N225",
+    },
+    "Rates": {
+        "US 10Y Yield": "^TNX",
+        "US 5Y Yield": "^FVX",
+        "US 13W Bill": "^IRX",
+    },
+    "FX": {
+        "EUR/USD": "EURUSD=X",
+        "GBP/USD": "GBPUSD=X",
+        "USD/JPY": "JPY=X",
+    },
+    "Commodities": {
+        "Brent": "BZ=F",
+        "WTI": "CL=F",
+        "Gold": "GC=F",
+        "Copper": "HG=F",
+        "Natural Gas": "NG=F",
+    },
+    "Crypto": {
+        "Bitcoin": "BTC-USD",
+        "Ethereum": "ETH-USD",
+    },
+}
 
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
@@ -189,6 +228,131 @@ def style_int_html(v: Any) -> str:
         return ""
     return f"{int(round(float(x))):,}".replace(",", " ")
 
+# ------------------------------------------------------------
+# Sprint 2 — Macro helpers
+# ------------------------------------------------------------
+def safe_float(value: Any) -> float:
+    """
+    Convertit une valeur en float robuste.
+    Retourne np.nan si la valeur est absente, invalide ou infinie.
+    """
+    try:
+        if value is None:
+            return np.nan
+
+        v = float(value)
+
+        if math.isnan(v) or math.isinf(v):
+            return np.nan
+
+        return v
+
+    except Exception:
+        return np.nan
+
+
+def get_macro_metric(macro_df: pd.DataFrame, name: str, column: str) -> float:
+    """
+    Récupère une métrique macro par nom d'instrument.
+
+    Exemple :
+    get_macro_metric(macro_df, "S&P 500", "ret_5d")
+    """
+    try:
+        if macro_df is None or macro_df.empty:
+            return np.nan
+
+        if "name" not in macro_df.columns or column not in macro_df.columns:
+            return np.nan
+
+        rows = macro_df.loc[macro_df["name"] == name, column]
+
+        if rows.empty:
+            return np.nan
+
+        return safe_float(rows.iloc[0])
+
+    except Exception:
+        return np.nan
+
+
+def importance_rank(importance: Any) -> int:
+    """
+    Classe les événements macro par importance.
+    Plus le chiffre est faible, plus l'importance est élevée.
+    """
+    ranks = {
+        "High": 0,
+        "Medium": 1,
+        "Low": 2,
+    }
+
+    return ranks.get(str(importance), 3)
+
+
+def html_escape(value: Any) -> str:
+    """
+    Échappement HTML minimal pour éviter qu'un texte manuel
+    dans macro_context.json casse le rendu HTML.
+    """
+    if value is None:
+        return ""
+
+    text = str(value)
+
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#x27;")
+    )
+
+
+def macro_pct(value: Any, digits: int = 2) -> str:
+    """
+    Formate une valeur décimale en pourcentage.
+    Exemple : 0.0123 -> +1.23%
+    """
+    v = safe_float(value)
+
+    if pd.isna(v):
+        return ""
+
+    sign = "+" if v > 0 else ""
+
+    return f"{sign}{v * 100:.{digits}f}%"
+
+
+def macro_num(value: Any, digits: int = 2) -> str:
+    """
+    Formate un nombre macro.
+    """
+    v = safe_float(value)
+
+    if pd.isna(v):
+        return ""
+
+    return f"{v:.{digits}f}"
+
+
+def macro_pct_class(value: Any) -> str:
+    """
+    Classe CSS pour les pourcentages macro.
+    Réutilise les classes existantes du rapport : pos / neg / zero.
+    """
+    v = safe_float(value)
+
+    if pd.isna(v):
+        return ""
+
+    if v > 0:
+        return "pos"
+
+    if v < 0:
+        return "neg"
+
+    return "zero"
 
 @dataclass
 class ReportParams:
@@ -201,6 +365,616 @@ class ReportParams:
 # ------------------------------------------------------------
 # Core computations
 # ------------------------------------------------------------
+def compute_macro_report(start_date, end_date) -> pd.DataFrame:
+    """
+    Construit la table macro / cross-asset du rapport.
+
+    Univers analysé :
+    - Equity
+    - Rates
+    - FX
+    - Commodities
+    - Crypto
+
+    La fonction est robuste :
+    - si un ticker Yahoo ne charge pas, il passe en status='no_data' ;
+    - si un ticker a des colonnes manquantes, il passe en status explicite ;
+    - aucune erreur sur un instrument ne bloque le rapport complet.
+    """
+    rows: list[dict[str, Any]] = []
+
+    for asset_class, instruments in MACRO_UNIVERSE.items():
+        for name, ticker in instruments.items():
+            try:
+                df = load_price_data(ticker, start_date, end_date, interval="1d")
+
+                if df is None or df.empty:
+                    rows.append({
+                        "asset_class": asset_class,
+                        "name": name,
+                        "ticker": ticker,
+                        "status": "no_data",
+                        "date": "",
+                        "last": np.nan,
+                        "daily_return": np.nan,
+                        "ret_5d": np.nan,
+                        "ret_20d": np.nan,
+                        "ret_252d": np.nan,
+                        "vol_20d_ann": np.nan,
+                        "sma_50": np.nan,
+                        "sma_200": np.nan,
+                        "distance_sma_50": np.nan,
+                        "distance_sma_200": np.nan,
+                        "trend": "N/A",
+                    })
+                    continue
+
+                df = df.copy().sort_index()
+
+                if "close" not in df.columns:
+                    rows.append({
+                        "asset_class": asset_class,
+                        "name": name,
+                        "ticker": ticker,
+                        "status": "missing_close",
+                        "date": "",
+                        "last": np.nan,
+                        "daily_return": np.nan,
+                        "ret_5d": np.nan,
+                        "ret_20d": np.nan,
+                        "ret_252d": np.nan,
+                        "vol_20d_ann": np.nan,
+                        "sma_50": np.nan,
+                        "sma_200": np.nan,
+                        "distance_sma_50": np.nan,
+                        "distance_sma_200": np.nan,
+                        "trend": "N/A",
+                    })
+                    continue
+
+                close = pd.to_numeric(df["close"], errors="coerce").dropna()
+
+                if close.empty:
+                    rows.append({
+                        "asset_class": asset_class,
+                        "name": name,
+                        "ticker": ticker,
+                        "status": "no_close_data",
+                        "date": "",
+                        "last": np.nan,
+                        "daily_return": np.nan,
+                        "ret_5d": np.nan,
+                        "ret_20d": np.nan,
+                        "ret_252d": np.nan,
+                        "vol_20d_ann": np.nan,
+                        "sma_50": np.nan,
+                        "sma_200": np.nan,
+                        "distance_sma_50": np.nan,
+                        "distance_sma_200": np.nan,
+                        "trend": "N/A",
+                    })
+                    continue
+
+                last_ts = close.index[-1]
+                last_date = getattr(last_ts, "date", lambda: last_ts)()
+                if hasattr(last_date, "isoformat"):
+                    last_date = last_date.isoformat()
+                else:
+                    last_date = str(last_date)
+
+                last = float(close.iloc[-1])
+                returns = close.pct_change()
+
+                daily_return = float(returns.dropna().iloc[-1]) if not returns.dropna().empty else np.nan
+                ret_5d = safe_return(close, periods=5)
+                ret_20d = safe_return(close, periods=20)
+                ret_252d = safe_return(close, periods=252)
+                vol_20d_ann = realized_vol_annualized(returns, window=20)
+
+                sma_50 = float(close.tail(50).mean()) if len(close) >= 50 else np.nan
+                sma_200 = float(close.tail(200).mean()) if len(close) >= 200 else np.nan
+
+                if pd.notna(sma_50) and sma_50 != 0:
+                    distance_sma_50 = float(last / sma_50 - 1.0)
+                else:
+                    distance_sma_50 = np.nan
+
+                if pd.notna(sma_200) and sma_200 != 0:
+                    distance_sma_200 = float(last / sma_200 - 1.0)
+                else:
+                    distance_sma_200 = np.nan
+
+                if pd.isna(sma_50) or pd.isna(sma_200):
+                    trend = "N/A"
+                elif last > sma_50 and last > sma_200:
+                    trend = "Bullish"
+                elif last < sma_50 and last < sma_200:
+                    trend = "Bearish"
+                else:
+                    trend = "Mixed"
+
+                rows.append({
+                    "asset_class": asset_class,
+                    "name": name,
+                    "ticker": ticker,
+                    "status": "ok",
+                    "date": last_date,
+                    "last": last,
+                    "daily_return": daily_return,
+                    "ret_5d": ret_5d,
+                    "ret_20d": ret_20d,
+                    "ret_252d": ret_252d,
+                    "vol_20d_ann": vol_20d_ann,
+                    "sma_50": sma_50,
+                    "sma_200": sma_200,
+                    "distance_sma_50": distance_sma_50,
+                    "distance_sma_200": distance_sma_200,
+                    "trend": trend,
+                })
+
+            except Exception as exc:
+                rows.append({
+                    "asset_class": asset_class,
+                    "name": name,
+                    "ticker": ticker,
+                    "status": f"error_{type(exc).__name__}",
+                    "date": "",
+                    "last": np.nan,
+                    "daily_return": np.nan,
+                    "ret_5d": np.nan,
+                    "ret_20d": np.nan,
+                    "ret_252d": np.nan,
+                    "vol_20d_ann": np.nan,
+                    "sma_50": np.nan,
+                    "sma_200": np.nan,
+                    "distance_sma_50": np.nan,
+                    "distance_sma_200": np.nan,
+                    "trend": "N/A",
+                })
+
+    macro_df = pd.DataFrame(rows)
+
+    if not macro_df.empty:
+        macro_df = macro_df.sort_values(["asset_class", "name"]).reset_index(drop=True)
+
+    return macro_df
+
+def compute_macro_regime(macro_df: pd.DataFrame) -> dict[str, Any]:
+    """
+    Transforme la table macro / cross-asset en régime synthétique.
+
+    Sortie :
+    {
+        "regime": "Risk-On" | "Neutral" | "Risk-Off" | "Macro data unavailable",
+        "score": int,
+        "drivers": list[str],
+        "alerts": list[str],
+        "flags": list[str],
+    }
+    """
+    score = 0
+    drivers: list[str] = []
+    alerts: list[str] = []
+    flags: list[str] = []
+
+    if macro_df is None or macro_df.empty:
+        return {
+            "regime": "Macro data unavailable",
+            "score": 0,
+            "drivers": ["Les données macro ne sont pas disponibles."],
+            "alerts": [],
+            "flags": [],
+        }
+
+    spx_5d = get_macro_metric(macro_df, "S&P 500", "ret_5d")
+    spx_20d = get_macro_metric(macro_df, "S&P 500", "ret_20d")
+
+    nasdaq_5d = get_macro_metric(macro_df, "Nasdaq", "ret_5d")
+    nasdaq_20d = get_macro_metric(macro_df, "Nasdaq", "ret_20d")
+
+    eurusd_5d = get_macro_metric(macro_df, "EUR/USD", "ret_5d")
+    usdjpy_5d = get_macro_metric(macro_df, "USD/JPY", "ret_5d")
+
+    us10y_5d = get_macro_metric(macro_df, "US 10Y Yield", "ret_5d")
+    us10y_20d = get_macro_metric(macro_df, "US 10Y Yield", "ret_20d")
+
+    brent_5d = get_macro_metric(macro_df, "Brent", "ret_5d")
+    wti_5d = get_macro_metric(macro_df, "WTI", "ret_5d")
+    natgas_5d = get_macro_metric(macro_df, "Natural Gas", "ret_5d")
+
+    gold_5d = get_macro_metric(macro_df, "Gold", "ret_5d")
+    bitcoin_5d = get_macro_metric(macro_df, "Bitcoin", "ret_5d")
+
+    # --------------------------------------------------------
+    # Equity momentum
+    # --------------------------------------------------------
+    if pd.notna(spx_5d):
+        if spx_5d > 0:
+            score += 1
+            drivers.append("Le S&P 500 affiche un momentum positif sur 5 jours.")
+        else:
+            drivers.append("Le S&P 500 affiche un momentum négatif sur 5 jours.")
+
+    if pd.notna(nasdaq_5d):
+        if nasdaq_5d > 0:
+            score += 1
+            drivers.append("Le Nasdaq affiche un momentum positif sur 5 jours.")
+        else:
+            drivers.append("Le Nasdaq affiche un momentum négatif sur 5 jours.")
+
+    if pd.notna(spx_20d) and spx_20d < 0:
+        score -= 1
+        drivers.append("Le S&P 500 reste négatif sur 20 jours.")
+
+    if pd.notna(nasdaq_20d) and nasdaq_20d < 0:
+        score -= 1
+        drivers.append("Le Nasdaq reste négatif sur 20 jours.")
+
+    # --------------------------------------------------------
+    # Dollar pressure
+    # --------------------------------------------------------
+    if pd.notna(eurusd_5d) and eurusd_5d < -0.01:
+        score -= 1
+        flags.append("Dollar Strength")
+        drivers.append("L'EUR/USD recule de plus de 1% sur 5 jours, signalant une fermeté du dollar.")
+
+    if pd.notna(usdjpy_5d) and usdjpy_5d > 0.01:
+        score -= 1
+        flags.append("Dollar Strength")
+        drivers.append("L'USD/JPY progresse de plus de 1% sur 5 jours, confirmant une fermeté du dollar.")
+
+    # --------------------------------------------------------
+    # Rates pressure
+    # --------------------------------------------------------
+    if pd.notna(us10y_5d) and us10y_5d > 0.03:
+        score -= 1
+        flags.append("Rates Pressure")
+        drivers.append("Le taux US 10Y progresse fortement sur 5 jours.")
+
+    if pd.notna(us10y_20d) and us10y_20d > 0.05:
+        flags.append("Rates Pressure")
+        drivers.append("Le taux US 10Y est nettement plus élevé sur 20 jours.")
+
+    # --------------------------------------------------------
+    # Commodities / Inflation pressure
+    # --------------------------------------------------------
+    if pd.notna(brent_5d) and brent_5d > 0.03:
+        flags.append("Inflation Pressure")
+        alerts.append("Le Brent progresse de plus de 3% sur 5 jours.")
+        drivers.append("La hausse du Brent suggère une pression inflationniste modérée.")
+
+    if pd.notna(wti_5d) and wti_5d > 0.03:
+        flags.append("Inflation Pressure")
+        alerts.append("Le WTI progresse de plus de 3% sur 5 jours.")
+
+    if pd.notna(natgas_5d) and natgas_5d > 0.05:
+        flags.append("Inflation Pressure")
+        alerts.append("Le gaz naturel progresse de plus de 5% sur 5 jours.")
+
+    # --------------------------------------------------------
+    # Defensive demand
+    # --------------------------------------------------------
+    if pd.notna(gold_5d) and pd.notna(spx_5d):
+        if gold_5d > spx_5d and spx_5d < 0:
+            score -= 1
+            drivers.append(
+                "L'or surperforme les actions alors que le S&P 500 recule, ce qui suggère une demande défensive."
+            )
+
+    # --------------------------------------------------------
+    # Crypto risk appetite
+    # --------------------------------------------------------
+    if pd.notna(bitcoin_5d) and pd.notna(nasdaq_5d):
+        if bitcoin_5d > 0 and nasdaq_5d > 0:
+            drivers.append(
+                "Bitcoin et Nasdaq progressent tous deux sur 5 jours, signal positif pour l'appétit au risque."
+            )
+
+    # --------------------------------------------------------
+    # High volatility flag
+    # --------------------------------------------------------
+    try:
+        equity_vols = macro_df.loc[
+            (macro_df["asset_class"] == "Equity") & (macro_df["status"] == "ok"),
+            "vol_20d_ann",
+        ]
+        equity_vols = pd.to_numeric(equity_vols, errors="coerce").dropna()
+
+        if not equity_vols.empty and equity_vols.mean() > 0.25:
+            flags.append("High Volatility")
+            alerts.append("La volatilité actions moyenne 20 jours annualisée dépasse 25%.")
+    except Exception:
+        pass
+
+    # --------------------------------------------------------
+    # Growth slowdown flag
+    # --------------------------------------------------------
+    if pd.notna(spx_20d) and pd.notna(nasdaq_20d):
+        if spx_20d < 0 and nasdaq_20d < 0:
+            flags.append("Growth Slowdown")
+            drivers.append(
+                "Les grands indices actions sont négatifs sur 20 jours, ce qui peut signaler un ralentissement des anticipations de croissance."
+            )
+
+    # --------------------------------------------------------
+    # Final regime classification
+    # --------------------------------------------------------
+    if score >= 2:
+        regime = "Risk-On"
+    elif score <= -2:
+        regime = "Risk-Off"
+    else:
+        regime = "Neutral"
+
+    # Nettoyage des doublons en gardant l'ordre
+    flags = list(dict.fromkeys(flags))
+    alerts = list(dict.fromkeys(alerts))
+    drivers = list(dict.fromkeys(drivers))
+
+    if not drivers:
+        drivers.append("Les signaux macro sont mixtes et ne donnent pas de direction claire.")
+
+    return {
+        "regime": regime,
+        "score": score,
+        "drivers": drivers,
+        "alerts": alerts,
+        "flags": flags,
+    }
+
+def build_macro_narrative(macro_regime: dict[str, Any], macro_df: pd.DataFrame) -> list[str]:
+    """
+    Produit une synthèse textuelle automatique du contexte de marché.
+    """
+    if not macro_regime:
+        return ["Le régime macro n'a pas pu être calculé."]
+
+    regime = macro_regime.get("regime", "Neutral")
+    flags = macro_regime.get("flags", [])
+
+    narrative: list[str] = []
+
+    if regime == "Risk-On":
+        narrative.append("Les marchés évoluent dans une configuration Risk-On.")
+        narrative.append("Les actifs risqués bénéficient d'un momentum globalement favorable.")
+        narrative.append("Le contexte macro apparaît constructif pour les expositions actions et croissance.")
+
+    elif regime == "Risk-Off":
+        narrative.append("Les marchés évoluent dans une configuration Risk-Off.")
+        narrative.append("Les signaux cross-asset indiquent une réduction de l'appétit pour le risque.")
+        narrative.append("La performance du portefeuille doit être interprétée dans un contexte de marché plus défensif.")
+
+    elif regime == "Macro data unavailable":
+        narrative.append("Les données macro ne sont pas disponibles pour ce rapport.")
+        narrative.append("Le diagnostic cross-asset n'a donc pas pu être calculé.")
+
+    else:
+        narrative.append("Les marchés évoluent dans une configuration globalement Neutral.")
+        narrative.append("Les signaux cross-asset restent mixtes et ne donnent pas de direction macro dominante.")
+
+    if "Inflation Pressure" in flags:
+        narrative.append(
+            "Le contexte macro montre des signes de pression inflationniste, notamment via les matières premières énergétiques."
+        )
+
+    if "Rates Pressure" in flags:
+        narrative.append(
+            "La hausse des taux constitue un facteur de pression potentiel pour les actifs sensibles aux taux."
+        )
+
+    if "Dollar Strength" in flags:
+        narrative.append(
+            "La fermeté du dollar peut peser sur les actifs risqués et les marchés internationaux."
+        )
+
+    if "High Volatility" in flags:
+        narrative.append(
+            "La volatilité de marché reste élevée et justifie une surveillance renforcée du risque portefeuille."
+        )
+
+    if "Growth Slowdown" in flags:
+        narrative.append(
+            "La faiblesse des indices actions sur moyenne période peut refléter un ralentissement des anticipations de croissance."
+        )
+
+    return narrative
+
+
+def load_macro_context(path: str | Path | None = None) -> list[dict[str, Any]]:
+    """
+    Charge le contexte macro manuel depuis reports/data/macro_context.json.
+
+    Ne casse jamais le rapport :
+    - fichier absent -> []
+    - JSON invalide -> []
+    - mauvais format -> []
+    """
+    context_path = Path(path) if path is not None else MACRO_CONTEXT_PATH
+
+    try:
+        if not context_path.exists():
+            return []
+
+        with open(context_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if not isinstance(data, list):
+            return []
+
+        clean_events: list[dict[str, Any]] = []
+
+        for item in data:
+            if isinstance(item, dict):
+                clean_events.append(item)
+
+        return clean_events
+
+    except Exception:
+        return []
+
+
+def filter_recent_macro_context(
+    events: list[dict[str, Any]],
+    reference_date: datetime,
+    days: int = 3,
+) -> list[dict[str, Any]]:
+    """
+    Filtre les événements macro récents.
+
+    On garde les événements entre :
+    reference_date - days
+    et
+    reference_date
+
+    Puis on trie :
+    - date décroissante ;
+    - importance High, Medium, Low.
+    """
+    if not events:
+        return []
+
+    try:
+        ref_date = pd.to_datetime(reference_date).date()
+    except Exception:
+        ref_date = datetime.now().date()
+
+    cutoff = ref_date - timedelta(days=days)
+
+    filtered: list[dict[str, Any]] = []
+
+    for event in events:
+        try:
+            event_date = pd.to_datetime(event.get("date")).date()
+
+            if cutoff <= event_date <= ref_date:
+                filtered.append(event)
+
+        except Exception:
+            continue
+
+    filtered = sorted(
+        filtered,
+        key=lambda e: (
+            pd.to_datetime(e.get("date", "1900-01-01")),
+            -importance_rank(e.get("importance", "Low")),
+        ),
+        reverse=True,
+    )
+
+    return filtered
+
+
+def build_macro_context_summary(events: list[dict[str, Any]]) -> list[str]:
+    """
+    Transforme les événements macro récents en phrases courtes pour le rapport.
+    """
+    if not events:
+        return [
+            "Aucun événement macro manuel récent n’a été renseigné dans reports/data/macro_context.json."
+        ]
+
+    summary: list[str] = []
+
+    for event in events:
+        date = event.get("date", "N/A")
+        category = event.get("category", "Macro")
+        importance = event.get("importance", "N/A")
+        title = event.get("title", "Untitled event")
+        event_summary = event.get("summary", "")
+
+        if event_summary:
+            sentence = f"{date} — [{importance}] {category}: {title}. {event_summary}"
+        else:
+            sentence = f"{date} — [{importance}] {category}: {title}."
+
+        summary.append(sentence)
+
+    return summary
+
+
+def build_portfolio_macro_interpretation(
+    snapshot: dict[str, Any],
+    macro_regime: dict[str, Any],
+    macro_df: pd.DataFrame,
+) -> list[str]:
+    """
+    Relie explicitement la performance du portefeuille au contexte macro.
+    """
+    if snapshot is None:
+        return ["Le snapshot portefeuille n'est pas disponible ; l'interprétation macro n'a pas pu être calculée."]
+
+    regime = macro_regime.get("regime", "Neutral") if macro_regime else "Neutral"
+    flags = macro_regime.get("flags", []) if macro_regime else []
+
+    daily_ret = safe_float(snapshot.get("portfolio_daily_return"))
+    ret_5d = safe_float(snapshot.get("portfolio_ret_5d"))
+    vol_20d = safe_float(snapshot.get("portfolio_vol_20d_ann"))
+    max_dd = safe_float(snapshot.get("portfolio_max_drawdown"))
+
+    interpretation: list[str] = []
+
+    interpretation.append(f"Le portefeuille doit être interprété dans un régime macro {regime}.")
+
+    if pd.notna(ret_5d):
+        if ret_5d > 0 and regime == "Risk-On":
+            interpretation.append(
+                "La performance positive du portefeuille sur 5 jours est cohérente avec un environnement favorable aux actifs risqués."
+            )
+        elif ret_5d < 0 and regime == "Risk-Off":
+            interpretation.append(
+                "La performance négative du portefeuille sur 5 jours est cohérente avec un contexte de réduction de l'appétit pour le risque."
+            )
+        elif ret_5d > 0 and regime == "Risk-Off":
+            interpretation.append(
+                "La performance positive du portefeuille malgré un régime Risk-Off suggère une résilience relative."
+            )
+        elif ret_5d < 0 and regime == "Risk-On":
+            interpretation.append(
+                "La performance négative du portefeuille malgré un régime Risk-On suggère une faiblesse spécifique à l'allocation ou aux titres détenus."
+            )
+        else:
+            interpretation.append(
+                "La performance récente du portefeuille reste à interpréter avec prudence dans un contexte macro peu directionnel."
+            )
+
+    if pd.notna(daily_ret):
+        if daily_ret > 0:
+            interpretation.append("La performance journalière du portefeuille est positive.")
+        elif daily_ret < 0:
+            interpretation.append("La performance journalière du portefeuille est négative.")
+
+    if pd.notna(vol_20d) and vol_20d > 0.25:
+        interpretation.append(
+            "La volatilité annualisée 20 jours du portefeuille est élevée et justifie une surveillance renforcée du risque."
+        )
+
+    if pd.notna(max_dd) and max_dd < -0.10:
+        interpretation.append(
+            "Le drawdown maximum observé reste significatif et doit être suivi dans le pilotage du risque."
+        )
+
+    if "Rates Pressure" in flags:
+        interpretation.append(
+            "La présence d'un signal Rates Pressure peut peser sur les actifs growth ou les actifs à duration longue."
+        )
+
+    if "Dollar Strength" in flags:
+        interpretation.append(
+            "La force du dollar peut influencer les actifs internationaux, les matières premières et les valeurs sensibles au change."
+        )
+
+    if "Inflation Pressure" in flags:
+        interpretation.append(
+            "La pression inflationniste peut favoriser certains actifs liés aux matières premières mais peser sur les actifs sensibles aux taux."
+        )
+
+    if "High Volatility" in flags:
+        interpretation.append(
+            "Le régime de volatilité élevée renforce l'importance du suivi des contributions au risque et des drawdowns."
+        )
+
+    return interpretation
+
 def compute_asset_report(ticker: str, start_date, end_date) -> dict:
     df = load_price_data(ticker, start_date, end_date, interval="1d")
 
@@ -788,6 +1562,228 @@ def build_summary(
 # ------------------------------------------------------------
 # HTML rendering
 # ------------------------------------------------------------
+def macro_kpi_card(label: str, value: Any) -> str:
+    """
+    Carte KPI dédiée au bloc Macro Regime.
+    """
+    if value is None or value == "":
+        value = "—"
+
+    return f"""
+    <div class="kpi">
+      <div class="kpi-label">{html_escape(label)}</div>
+      <div class="kpi-value">{html_escape(value)}</div>
+    </div>
+    """
+
+
+def render_macro_regime_html(macro_regime: dict[str, Any]) -> str:
+    """
+    Rend la section Macro Regime en HTML.
+    """
+    if not macro_regime:
+        return """
+        <div class="section-title">Macro Regime</div>
+        <div class="card">
+          <p>Macro data unavailable.</p>
+        </div>
+        """
+
+    regime = macro_regime.get("regime", "N/A")
+    score = macro_regime.get("score", "N/A")
+    flags = macro_regime.get("flags", [])
+    alerts = macro_regime.get("alerts", [])
+    drivers = macro_regime.get("drivers", [])
+
+    flags_text = ", ".join(flags) if flags else "None"
+    drivers_html = text_list_html([html_escape(x) for x in drivers])
+    alerts_html = text_list_html([html_escape(x) for x in alerts]) if alerts else "<li>Aucune alerte macro majeure.</li>"
+
+    return f"""
+    <div class="section-title">Macro Regime</div>
+    <div class="grid">
+      {macro_kpi_card("Regime", regime)}
+      {macro_kpi_card("Score", str(score))}
+      {macro_kpi_card("Flags", flags_text)}
+      {macro_kpi_card("Macro Alerts", str(len(alerts)))}
+    </div>
+
+    <div class="card" style="margin-top: 12px;">
+      <h2>Macro Drivers</h2>
+      <ul>
+        {drivers_html}
+      </ul>
+    </div>
+
+    <div class="card" style="margin-top: 12px;">
+      <h2>Macro Alerts</h2>
+      <ul class="alert-list">
+        {alerts_html}
+      </ul>
+    </div>
+    """
+
+
+def render_sentence_section_html(title: str, sentences: list[str]) -> str:
+    """
+    Rend une section HTML simple composée d'une liste de phrases.
+    """
+    if not sentences:
+        sentences = ["No data available."]
+
+    items_html = text_list_html([html_escape(x) for x in sentences])
+
+    return f"""
+    <div class="section-title">{html_escape(title)}</div>
+    <div class="card">
+      <ul>
+        {items_html}
+      </ul>
+    </div>
+    """
+
+
+def render_macro_context_html(
+    events: list[dict[str, Any]],
+    summary_sentences: list[str],
+) -> str:
+    """
+    Rend le contexte macro manuel issu de reports/data/macro_context.json.
+    """
+    if not events:
+        return render_sentence_section_html(
+            "Macro Context — Recent Events",
+            summary_sentences,
+        )
+
+    rows = []
+
+    for event in events:
+        rows.append(f"""
+        <tr>
+          <td>{html_escape(event.get("date", ""))}</td>
+          <td>{html_escape(event.get("category", ""))}</td>
+          <td>{html_escape(event.get("importance", ""))}</td>
+          <td>{html_escape(event.get("title", ""))}</td>
+          <td>{html_escape(event.get("summary", ""))}</td>
+          <td>{html_escape(event.get("source", ""))}</td>
+        </tr>
+        """)
+
+    return f"""
+    <div class="section-title">Macro Context — Recent Events</div>
+    <div class="card">
+      <div class="wrap">
+        <table class="report-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Category</th>
+              <th>Importance</th>
+              <th>Title</th>
+              <th>Summary</th>
+              <th>Source</th>
+            </tr>
+          </thead>
+          <tbody>
+            {''.join(rows)}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    """
+
+
+def render_cross_asset_overview_html(macro_df: pd.DataFrame) -> str:
+    """
+    Rend la table Cross-Asset Overview.
+    """
+    if macro_df is None or macro_df.empty:
+        return """
+        <div class="section-title">Cross-Asset Overview</div>
+        <div class="card">
+          <p>Macro data unavailable.</p>
+        </div>
+        """
+
+    display_cols = [
+        "asset_class",
+        "name",
+        "ticker",
+        "status",
+        "date",
+        "last",
+        "daily_return",
+        "ret_5d",
+        "ret_20d",
+        "vol_20d_ann",
+        "distance_sma_50",
+        "distance_sma_200",
+        "trend",
+    ]
+
+    df = macro_df.copy()
+
+    for col in display_cols:
+        if col not in df.columns:
+            df[col] = np.nan
+
+    df = df[display_cols].copy()
+
+    rows = []
+
+    for _, row in df.iterrows():
+        rows.append(f"""
+        <tr>
+          <td>{html_escape(row.get("asset_class", ""))}</td>
+          <td>{html_escape(row.get("name", ""))}</td>
+          <td>{html_escape(row.get("ticker", ""))}</td>
+          <td>{format_status_html(row.get("status", ""))}</td>
+          <td>{html_escape(row.get("date", ""))}</td>
+          <td>{macro_num(row.get("last"))}</td>
+          <td class="{macro_pct_class(row.get("daily_return"))}">{macro_pct(row.get("daily_return"))}</td>
+          <td class="{macro_pct_class(row.get("ret_5d"))}">{macro_pct(row.get("ret_5d"))}</td>
+          <td class="{macro_pct_class(row.get("ret_20d"))}">{macro_pct(row.get("ret_20d"))}</td>
+          <td>{macro_pct(row.get("vol_20d_ann"))}</td>
+          <td class="{macro_pct_class(row.get("distance_sma_50"))}">{macro_pct(row.get("distance_sma_50"))}</td>
+          <td class="{macro_pct_class(row.get("distance_sma_200"))}">{macro_pct(row.get("distance_sma_200"))}</td>
+          <td>{html_escape(row.get("trend", ""))}</td>
+        </tr>
+        """)
+
+    return f"""
+    <div class="section-title">Cross-Asset Overview</div>
+    <div class="card">
+      <div class="wrap">
+        <table class="report-table">
+          <thead>
+            <tr>
+              <th>Asset Class</th>
+              <th>Name</th>
+              <th>Ticker</th>
+              <th>Status</th>
+              <th>Date</th>
+              <th>Last</th>
+              <th>1D</th>
+              <th>5D</th>
+              <th>20D</th>
+              <th>Vol 20D Ann.</th>
+              <th>Dist. SMA 50</th>
+              <th>Dist. SMA 200</th>
+              <th>Trend</th>
+            </tr>
+          </thead>
+          <tbody>
+            {''.join(rows)}
+          </tbody>
+        </table>
+      </div>
+      <div class="footer">
+        Cross-asset metrics are computed from the fixed macro universe and are independent from the user portfolio.
+      </div>
+    </div>
+    """
+
 def _format_html_table(df: pd.DataFrame) -> str:
     display = df.copy()
 
@@ -881,9 +1877,35 @@ def write_html_report(
     risk_alerts: list[str],
     snapshot: dict[str, Any],
     full_df: pd.DataFrame,
+    macro_df: pd.DataFrame | None = None,
+    macro_regime: dict[str, Any] | None = None,
+    macro_narrative: list[str] | None = None,
+    macro_events_recent: list[dict[str, Any]] | None = None,
+    macro_context_summary: list[str] | None = None,
+    portfolio_macro_interpretation: list[str] | None = None,
 ):
     full_table_html = _format_html_table(full_df)
     contrib_html = contribution_table_html(full_df)
+
+    # Sprint 2 — Macro HTML blocks
+    macro_regime_html = render_macro_regime_html(macro_regime or {})
+    macro_narrative_html = render_sentence_section_html(
+        "Daily Market Narrative",
+        macro_narrative or ["Macro narrative unavailable."],
+    )
+    macro_context_html = render_macro_context_html(
+        macro_events_recent or [],
+        macro_context_summary or [
+            "Aucun événement macro manuel récent n’a été renseigné dans reports/data/macro_context.json."
+        ],
+    )
+    portfolio_macro_html = render_sentence_section_html(
+        "Portfolio Interpretation in Macro Context",
+        portfolio_macro_interpretation or [
+            "Portfolio macro interpretation unavailable."
+        ],
+    )
+    cross_asset_html = render_cross_asset_overview_html(macro_df)
 
     bullets = [ln[2:] for ln in summary_lines if ln.strip().startswith("- ")]
     bullets = [b.replace("**", "").replace("`", "") for b in bullets]
@@ -1087,7 +2109,18 @@ def write_html_report(
       </ul>
     </div>
 
+    {macro_regime_html}
+
+    {macro_narrative_html}
+
+    {macro_context_html}
+
+    {portfolio_macro_html}
+
+    {cross_asset_html}
+
     <div class="section-title">Performance Contribution</div>
+    
     <div class="card">
       <div class="wrap">
         {contrib_html}
@@ -1180,6 +2213,54 @@ def main():
 
     risk_alerts = build_risk_alerts(report_df, snapshot)
     executive_summary = build_executive_summary(report_df, snapshot, risk_alerts)
+
+        # Sprint 2 — Macro / Cross-Asset computations
+    try:
+        macro_start_date = start_date - timedelta(days=420)
+        macro_end_date = end_date
+
+        macro_df = compute_macro_report(
+            start_date=macro_start_date,
+            end_date=macro_end_date,
+        )
+
+        macro_regime = compute_macro_regime(macro_df)
+        macro_narrative = build_macro_narrative(macro_regime, macro_df)
+
+        macro_events_all = load_macro_context()
+        macro_events_recent = filter_recent_macro_context(
+            events=macro_events_all,
+            reference_date=now,
+            days=3,
+        )
+        macro_context_summary = build_macro_context_summary(macro_events_recent)
+
+        portfolio_macro_interpretation = build_portfolio_macro_interpretation(
+            snapshot=snapshot,
+            macro_regime=macro_regime,
+            macro_df=macro_df,
+        )
+
+    except Exception as exc:
+        macro_df = pd.DataFrame()
+        macro_regime = {
+            "regime": "Macro data unavailable",
+            "score": 0,
+            "drivers": [f"Erreur lors du calcul macro : {type(exc).__name__}."],
+            "alerts": [],
+            "flags": [],
+        }
+        macro_narrative = [
+            "Les données macro ne sont pas disponibles pour ce rapport."
+        ]
+        macro_events_recent = []
+        macro_context_summary = [
+            "Aucun événement macro manuel récent n’a été renseigné dans reports/data/macro_context.json."
+        ]
+        portfolio_macro_interpretation = [
+            "L’interprétation macro du portefeuille n’a pas pu être calculée."
+        ]
+    
 
     reports_dir = os.path.join(REPO_ROOT, "reports", "outputs")
     logs_dir = os.path.join(REPO_ROOT, "logs")
@@ -1303,6 +2384,12 @@ def main():
         risk_alerts=risk_alerts,
         snapshot=snapshot,
         full_df=report_df,
+        macro_df=macro_df,
+        macro_regime=macro_regime,
+        macro_narrative=macro_narrative,
+        macro_events_recent=macro_events_recent,
+        macro_context_summary=macro_context_summary,
+        portfolio_macro_interpretation=portfolio_macro_interpretation,
     )
 
     print(f"[OK] Report written: {csv_path} and {md_path} and {html_path}")
