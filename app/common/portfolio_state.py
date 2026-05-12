@@ -83,3 +83,40 @@ def get_portfolio_tickers(path: str | None = None) -> list[str]:
         return []
     tickers = [str(t).strip().upper() for t in assets.keys() if str(t).strip()]
     return tickers
+
+def get_portfolio_weights(path: str | None = None) -> dict[str, float]:
+    """
+    Retourne les poids du portefeuille sous forme {ticker: weight}.
+    Les poids sont normalisés si leur somme est strictement positive.
+
+    Exemple :
+    {"MC.PA": 0.55, "BNP.PA": 0.00, "NVDA": 0.45}
+    """
+    data = load_portfolio_state(path)
+    assets = data.get("assets", {})
+
+    if not isinstance(assets, dict):
+        return {}
+
+    weights: dict[str, float] = {}
+
+    for ticker, weight in assets.items():
+        if not ticker:
+            continue
+        try:
+            w = float(weight)
+        except Exception:
+            continue
+
+        ticker_clean = str(ticker).strip().upper()
+        if not ticker_clean:
+            continue
+
+        weights[ticker_clean] = w
+
+    total = sum(w for w in weights.values() if w > 0)
+
+    if total > 0:
+        weights = {ticker: w / total for ticker, w in weights.items()}
+
+    return weights

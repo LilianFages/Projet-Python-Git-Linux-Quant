@@ -9,11 +9,31 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from pathlib import Path
 
 # ------------------------------------------------------------
 # Project import plumbing (cron/systemd safe)
 # ------------------------------------------------------------
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+# daily_report.py is located in: reports/scripts/daily_report.py
+# repo root is therefore two levels above this file.
+def find_repo_root() -> str:
+    """
+    Remonte l'arborescence jusqu'à trouver la racine du projet.
+    La racine est identifiée par la présence de main.py.
+    """
+    here = Path(__file__).resolve()
+
+    for parent in [here.parent] + list(here.parents):
+        if (parent / "main.py").exists():
+            return str(parent)
+
+    raise RuntimeError(
+        "Impossible de trouver la racine du projet : aucun main.py détecté dans les parents."
+    )
+
+
+REPO_ROOT = find_repo_root()
+
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
@@ -22,14 +42,14 @@ try:
 except Exception as e:
     raise ImportError(
         "Impossible d'importer load_price_data depuis app.common.data_loader. "
-        "Vérifie l'arbo et le sys.path."
+        "Vérifie l'arborescence et le sys.path."
     ) from e
 
-# Portfolio state (Option B)
 try:
-    from app.common.portfolio_state import get_portfolio_tickers
+    from app.common.portfolio_state import get_portfolio_tickers, get_portfolio_weights
 except Exception:
-    get_portfolio_tickers = None  # fallback
+    get_portfolio_tickers = None
+    get_portfolio_weights = None
 
 
 # ------------------------------------------------------------
@@ -93,6 +113,14 @@ def fmt_pct(x: Any, digits: int = 2) -> str:
     return f"{v * 100:.{digits}f}%"
 
 
+def fmt_pct_signed(x: Any, digits: int = 2) -> str:
+    v = _to_float(x)
+    if pd.isna(v):
+        return ""
+    sign = "+" if v > 0 else ""
+    return f"{sign}{v * 100:.{digits}f}%"
+
+
 def fmt_num(x: Any, digits: int = 2) -> str:
     v = _to_float(x)
     if pd.isna(v):
@@ -110,11 +138,64 @@ def fmt_int(x: Any) -> str:
         return ""
 
 
+def normalize_weights(tickers: list[str], weights: dict[str, float] | None) -> dict[str, float]:
+    """
+    Retourne un dictionnaire {ticker: weight} normalisé.
+    Si les poids sont absents ou inutilisables, fallback equal-weight.
+    """
+    tickers_clean = [str(t).strip().upper() for t in tickers if str(t).strip()]
+    tickers_clean = list(dict.fromkeys(tickers_clean))
+
+    if not tickers_clean:
+        return {}
+
+    raw = {}
+    for t in tickers_clean:
+        try:
+            w = float((weights or {}).get(t, np.nan))
+        except Exception:
+            w = np.nan
+        raw[t] = w
+
+    positive_total = sum(w for w in raw.values() if pd.notna(w) and w > 0)
+
+    if positive_total > 0:
+        return {t: (raw[t] / positive_total if pd.notna(raw[t]) and raw[t] > 0 else 0.0) for t in tickers_clean}
+
+    ew = 1.0 / len(tickers_clean)
+    return {t: ew for t in tickers_clean}
+
+
+def style_pct_html(v: Any, digits: int = 2) -> str:
+    x = pd.to_numeric(v, errors="coerce")
+    if pd.isna(x):
+        return ""
+    val = float(x) * 100.0
+    cls = "pos" if val > 0 else "neg" if val < 0 else "zero"
+    sign = "+" if val > 0 else ""
+    return f"<span class='{cls}'>{sign}{val:.{digits}f}%</span>"
+
+
+def style_num_html(v: Any, digits: int = 2) -> str:
+    x = pd.to_numeric(v, errors="coerce")
+    if pd.isna(x):
+        return ""
+    return f"{float(x):,.{digits}f}".replace(",", " ")
+
+
+def style_int_html(v: Any) -> str:
+    x = pd.to_numeric(v, errors="coerce")
+    if pd.isna(x):
+        return ""
+    return f"{int(round(float(x))):,}".replace(",", " ")
+
+
 @dataclass
 class ReportParams:
     tickers: list[str]
     lookback_days: int
-    tickers_source: str  # "portfolio" or "env_default"
+    tickers_source: str
+    weights_source: str
 
 
 # ------------------------------------------------------------
@@ -189,16 +270,486 @@ def compute_asset_report(ticker: str, start_date, end_date) -> dict:
     }
 
 
-def build_summary(report_df: pd.DataFrame, params: ReportParams, start_date, end_date, elapsed_s: float) -> list[str]:
+def enrich_with_weights_and_contributions(report_df: pd.DataFrame, weights: dict[str, float]) -> pd.DataFrame:
+    df = report_df.copy()
+
+    if "ticker" not in df.columns:
+        return df
+
+    df["ticker"] = df["ticker"].astype(str).str.strip().str.upper()
+    df["weight"] = df["ticker"].map(weights).fillna(0.0)
+
+    for col in ["daily_return", "ret_5d", "ret_20d"]:
+        if col not in df.columns:
+            df[col] = np.nan
+
+    df["contrib_1d"] = pd.to_numeric(df["weight"], errors="coerce") * pd.to_numeric(df["daily_return"], errors="coerce")
+    df["contrib_5d"] = pd.to_numeric(df["weight"], errors="coerce") * pd.to_numeric(df["ret_5d"], errors="coerce")
+    df["contrib_20d"] = pd.to_numeric(df["weight"], errors="coerce") * pd.to_numeric(df["ret_20d"], errors="coerce")
+
+    return df
+
+def load_close_series_for_ticker(ticker: str, start_date, end_date) -> pd.Series:
+    """
+    Charge la série de clôture d'un ticker et retourne une Series propre.
+    """
+    try:
+        df = load_price_data(ticker, start_date, end_date, interval="1d")
+    except Exception:
+        return pd.Series(dtype=float, name=ticker)
+
+    if df is None or df.empty or "close" not in df.columns:
+        return pd.Series(dtype=float, name=ticker)
+
+    close = pd.to_numeric(df["close"], errors="coerce").dropna()
+    close = close.sort_index()
+    close.name = ticker
+
+    return close
+
+
+def compute_portfolio_timeseries(
+    tickers: list[str],
+    weights: dict[str, float],
+    start_date,
+    end_date,
+) -> dict[str, Any]:
+    """
+    Reconstruit une vraie série temporelle de portefeuille à partir :
+    - des séries de prix ;
+    - des poids du portefeuille ;
+    - d'un alignement des dates.
+
+    Retourne :
+    - prices : prix alignés ;
+    - returns : rendements actifs alignés ;
+    - portfolio_returns : rendements journaliers portefeuille ;
+    - equity_curve : courbe base 100 ;
+    - effective_weights : poids utilisés après filtrage des tickers valides.
+    """
+    close_series: list[pd.Series] = []
+
+    for ticker in tickers:
+        t = str(ticker).strip().upper()
+        if not t:
+            continue
+
+        s = load_close_series_for_ticker(t, start_date, end_date)
+
+        if s is not None and not s.empty:
+            close_series.append(s)
+
+    if not close_series:
+        return {
+            "available": False,
+            "prices": pd.DataFrame(),
+            "returns": pd.DataFrame(),
+            "portfolio_returns": pd.Series(dtype=float),
+            "equity_curve": pd.Series(dtype=float),
+            "effective_weights": {},
+        }
+
+    prices = pd.concat(close_series, axis=1).sort_index()
+
+    # On garde les dates où au moins deux observations existent si possible.
+    # Ensuite forward-fill limité pour éviter de perdre trop d'historique sur jours fériés différents.
+    prices = prices.ffill().dropna(how="all")
+
+    valid_cols = [c for c in prices.columns if prices[c].dropna().shape[0] >= 2]
+    prices = prices[valid_cols].dropna(how="any")
+
+    if prices.empty or len(prices.columns) == 0:
+        return {
+            "available": False,
+            "prices": pd.DataFrame(),
+            "returns": pd.DataFrame(),
+            "portfolio_returns": pd.Series(dtype=float),
+            "equity_curve": pd.Series(dtype=float),
+            "effective_weights": {},
+        }
+
+    raw_weights = {
+        ticker: float(weights.get(ticker, 0.0))
+        for ticker in prices.columns
+    }
+
+    total_weight = sum(w for w in raw_weights.values() if pd.notna(w) and w > 0)
+
+    if total_weight <= 0:
+        equal_weight = 1.0 / len(prices.columns)
+        effective_weights = {ticker: equal_weight for ticker in prices.columns}
+    else:
+        effective_weights = {
+            ticker: (w / total_weight if pd.notna(w) and w > 0 else 0.0)
+            for ticker, w in raw_weights.items()
+        }
+
+    returns = prices.pct_change().dropna(how="any")
+
+    if returns.empty:
+        return {
+            "available": False,
+            "prices": prices,
+            "returns": pd.DataFrame(),
+            "portfolio_returns": pd.Series(dtype=float),
+            "equity_curve": pd.Series(dtype=float),
+            "effective_weights": effective_weights,
+        }
+
+    weights_series = pd.Series(effective_weights)
+    weights_series = weights_series.reindex(returns.columns).fillna(0.0)
+
+    portfolio_returns = returns.mul(weights_series, axis=1).sum(axis=1)
+    portfolio_returns.name = "portfolio_return"
+
+    equity_curve = (1.0 + portfolio_returns).cumprod() * 100.0
+    equity_curve.name = "portfolio_base_100"
+
+    return {
+        "available": True,
+        "prices": prices,
+        "returns": returns,
+        "portfolio_returns": portfolio_returns,
+        "equity_curve": equity_curve,
+        "effective_weights": effective_weights,
+    }
+
+
+def compute_portfolio_snapshot_from_timeseries(
+    report_df: pd.DataFrame,
+    portfolio_ts: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Calcule les métriques portefeuille exactes à partir de la série temporelle reconstruite.
+    Les contributions par actif restent calculées depuis report_df.
+    """
+    if not portfolio_ts.get("available"):
+        return compute_portfolio_snapshot(report_df)
+
+    portfolio_returns = portfolio_ts.get("portfolio_returns", pd.Series(dtype=float))
+    equity_curve = portfolio_ts.get("equity_curve", pd.Series(dtype=float))
+    prices = portfolio_ts.get("prices", pd.DataFrame())
+    effective_weights = portfolio_ts.get("effective_weights", {})
+
+    if portfolio_returns is None or portfolio_returns.empty or equity_curve is None or equity_curve.empty:
+        return compute_portfolio_snapshot(report_df)
+
+    daily_return = float(portfolio_returns.iloc[-1]) if len(portfolio_returns) >= 1 else np.nan
+
+    def trailing_return_from_equity(series: pd.Series, periods: int) -> float:
+        s = pd.to_numeric(series, errors="coerce").dropna()
+        if len(s) <= periods:
+            return np.nan
+        return float(s.iloc[-1] / s.iloc[-(periods + 1)] - 1.0)
+
+    ret_5d = trailing_return_from_equity(equity_curve, 5)
+    ret_20d = trailing_return_from_equity(equity_curve, 20)
+    ret_252d = trailing_return_from_equity(equity_curve, 252)
+
+    vol_20d_ann = realized_vol_annualized(portfolio_returns, window=20)
+    portfolio_mdd = max_drawdown(equity_curve)
+
+    total_return = float(equity_curve.iloc[-1] / equity_curve.iloc[0] - 1.0) if len(equity_curve) >= 2 else np.nan
+
+    best_day = float(portfolio_returns.max()) if not portfolio_returns.empty else np.nan
+    worst_day = float(portfolio_returns.min()) if not portfolio_returns.empty else np.nan
+
+    ok_df = report_df[report_df.get("status") == "ok"].copy() if "status" in report_df.columns else pd.DataFrame()
+
+    for col in [
+        "weight",
+        "daily_return",
+        "ret_5d",
+        "ret_20d",
+        "ret_252d",
+        "vol_20d_ann",
+        "max_drawdown",
+        "contrib_1d",
+        "contrib_5d",
+        "contrib_20d",
+    ]:
+        if col in ok_df.columns:
+            ok_df[col] = pd.to_numeric(ok_df[col], errors="coerce")
+
+    best_contributor = None
+    worst_contributor = None
+    top_risk_asset = None
+
+    if not ok_df.empty and "contrib_1d" in ok_df.columns:
+        contrib = ok_df[["ticker", "contrib_1d"]].dropna()
+        if not contrib.empty:
+            best_contributor = contrib.sort_values("contrib_1d", ascending=False).iloc[0].to_dict()
+            worst_contributor = contrib.sort_values("contrib_1d", ascending=True).iloc[0].to_dict()
+
+    if not ok_df.empty and "vol_20d_ann" in ok_df.columns:
+        risk = ok_df[["ticker", "vol_20d_ann"]].dropna()
+        if not risk.empty:
+            top_risk_asset = risk.sort_values("vol_20d_ann", ascending=False).iloc[0].to_dict()
+
+    snapshot = {
+        "available": True,
+
+        # Métriques exactes portefeuille
+        "portfolio_daily_return": daily_return,
+        "portfolio_ret_5d": ret_5d,
+        "portfolio_ret_20d": ret_20d,
+        "portfolio_ret_252d": ret_252d,
+        "portfolio_total_return": total_return,
+        "portfolio_vol_20d_ann": vol_20d_ann,
+        "portfolio_max_drawdown": portfolio_mdd,
+        "portfolio_best_day": best_day,
+        "portfolio_worst_day": worst_day,
+
+        # Compatibilité avec les anciennes clés utilisées dans le HTML V2
+        "portfolio_vol_20d_ann_proxy": vol_20d_ann,
+        "portfolio_max_drawdown_proxy": portfolio_mdd,
+
+        # Infos complémentaires
+        "best_contributor_1d": best_contributor,
+        "worst_contributor_1d": worst_contributor,
+        "top_risk_asset": top_risk_asset,
+        "effective_weights": effective_weights,
+        "portfolio_obs": int(len(portfolio_returns)),
+        "portfolio_first_date": equity_curve.index[0].date().isoformat() if len(equity_curve) else "",
+        "portfolio_last_date": equity_curve.index[-1].date().isoformat() if len(equity_curve) else "",
+        "valid_price_tickers": list(prices.columns) if isinstance(prices, pd.DataFrame) else [],
+    }
+
+    return snapshot
+
+def compute_portfolio_snapshot(report_df: pd.DataFrame) -> dict[str, Any]:
+    ok_df = report_df[report_df.get("status") == "ok"].copy() if "status" in report_df.columns else pd.DataFrame()
+
+    if ok_df.empty:
+        return {
+            "available": False,
+            "portfolio_daily_return": np.nan,
+            "portfolio_ret_5d": np.nan,
+            "portfolio_ret_20d": np.nan,
+            "portfolio_ret_252d": np.nan,
+            "portfolio_vol_20d_ann_proxy": np.nan,
+            "portfolio_max_drawdown_proxy": np.nan,
+            "best_contributor_1d": None,
+            "worst_contributor_1d": None,
+            "top_risk_asset": None,
+        }
+
+    for col in [
+        "weight",
+        "daily_return",
+        "ret_5d",
+        "ret_20d",
+        "ret_252d",
+        "vol_20d_ann",
+        "max_drawdown",
+        "contrib_1d",
+        "contrib_5d",
+        "contrib_20d",
+    ]:
+        if col in ok_df.columns:
+            ok_df[col] = pd.to_numeric(ok_df[col], errors="coerce")
+
+    # Les rendements portefeuille sont calculés par contribution pondérée.
+    # Pour la volatilité et le drawdown, on utilise ici un proxy à partir des métriques par actif.
+    # Une version ultérieure pourra reconstruire une série temporelle portefeuille exacte.
+    snapshot = {
+        "available": True,
+        "portfolio_daily_return": ok_df["contrib_1d"].sum(skipna=True),
+        "portfolio_ret_5d": ok_df["contrib_5d"].sum(skipna=True),
+        "portfolio_ret_20d": ok_df["contrib_20d"].sum(skipna=True),
+        "portfolio_ret_252d": (ok_df["weight"] * ok_df["ret_252d"]).sum(skipna=True)
+        if "ret_252d" in ok_df.columns
+        else np.nan,
+        "portfolio_vol_20d_ann_proxy": (ok_df["weight"] * ok_df["vol_20d_ann"]).sum(skipna=True)
+        if "vol_20d_ann" in ok_df.columns
+        else np.nan,
+        "portfolio_max_drawdown_proxy": (ok_df["weight"] * ok_df["max_drawdown"]).sum(skipna=True)
+        if "max_drawdown" in ok_df.columns
+        else np.nan,
+        "best_contributor_1d": None,
+        "worst_contributor_1d": None,
+        "top_risk_asset": None,
+    }
+
+    contrib = ok_df[["ticker", "contrib_1d"]].dropna()
+    if not contrib.empty:
+        snapshot["best_contributor_1d"] = contrib.sort_values("contrib_1d", ascending=False).iloc[0].to_dict()
+        snapshot["worst_contributor_1d"] = contrib.sort_values("contrib_1d", ascending=True).iloc[0].to_dict()
+
+    risk = ok_df[["ticker", "vol_20d_ann"]].dropna()
+    if not risk.empty:
+        snapshot["top_risk_asset"] = risk.sort_values("vol_20d_ann", ascending=False).iloc[0].to_dict()
+
+    return snapshot
+
+
+def build_risk_alerts(report_df: pd.DataFrame, snapshot: dict[str, Any]) -> list[str]:
+    alerts: list[str] = []
+
+    ok_df = report_df[report_df.get("status") == "ok"].copy() if "status" in report_df.columns else pd.DataFrame()
+    if ok_df.empty:
+        return ["Aucune donnée exploitable pour générer des alertes de risque."]
+
+    for col in ["daily_return", "ret_5d", "ret_20d", "vol_20d_ann", "max_drawdown", "weight", "contrib_1d"]:
+        if col in ok_df.columns:
+            ok_df[col] = pd.to_numeric(ok_df[col], errors="coerce")
+
+    # Portfolio-level alerts
+    p_dd = _to_float(snapshot.get("portfolio_max_drawdown"))
+    p_vol = _to_float(snapshot.get("portfolio_vol_20d_ann"))
+    p_20d = _to_float(snapshot.get("portfolio_ret_20d"))
+
+    if pd.notna(p_dd) and p_dd <= -0.10:
+        alerts.append(f"Drawdown portefeuille significatif sur le lookback : {fmt_pct_signed(p_dd)}.")
+
+    if pd.notna(p_vol) and p_vol >= 0.30:
+        alerts.append(f"Volatilité portefeuille élevée : {fmt_pct_signed(p_vol)} annualisé 20j.")
+
+    if pd.notna(p_20d) and p_20d <= -0.10:
+        alerts.append(f"Momentum portefeuille négatif sur 20 jours : {fmt_pct_signed(p_20d)}.")
+
+    # Asset-level alerts
+    for _, row in ok_df.iterrows():
+        ticker = row.get("ticker", "N/A")
+        ret_5d = row.get("ret_5d", np.nan)
+        ret_20d = row.get("ret_20d", np.nan)
+        vol = row.get("vol_20d_ann", np.nan)
+        dd = row.get("max_drawdown", np.nan)
+        weight = row.get("weight", np.nan)
+
+        if pd.notna(ret_5d) and ret_5d <= -0.05:
+            alerts.append(f"{ticker} baisse de {fmt_pct_signed(ret_5d)} sur 5 jours.")
+
+        if pd.notna(ret_20d) and ret_20d <= -0.10:
+            alerts.append(f"{ticker} baisse de {fmt_pct_signed(ret_20d)} sur 20 jours.")
+
+        if pd.notna(vol) and vol >= 0.50:
+            alerts.append(f"{ticker} présente une volatilité élevée : {fmt_pct_signed(vol)} annualisé 20j.")
+
+        if pd.notna(dd) and dd <= -0.25:
+            alerts.append(f"{ticker} affiche un drawdown important sur le lookback : {fmt_pct_signed(dd)}.")
+
+        if pd.notna(weight) and weight >= 0.60:
+            alerts.append(f"{ticker} représente {fmt_pct_signed(weight)} du portefeuille : concentration élevée.")
+
+    if not alerts:
+        alerts.append("Aucune alerte majeure détectée sur les seuils configurés.")
+
+    return alerts[:10]
+
+
+def build_executive_summary(report_df: pd.DataFrame, snapshot: dict[str, Any], risk_alerts: list[str]) -> list[str]:
+    if not snapshot.get("available"):
+        return ["Aucun actif exploitable dans le rapport. Impossible de produire une synthèse portefeuille."]
+
+    p_day = _to_float(snapshot.get("portfolio_daily_return"))
+    p_5d = _to_float(snapshot.get("portfolio_ret_5d"))
+    p_20d = _to_float(snapshot.get("portfolio_ret_20d"))
+    p_vol = _to_float(snapshot.get("portfolio_vol_20d_ann"))
+    p_dd = _to_float(snapshot.get("portfolio_max_drawdown"))
+
+    best = snapshot.get("best_contributor_1d")
+    worst = snapshot.get("worst_contributor_1d")
+    top_risk = snapshot.get("top_risk_asset")
+
+    lines: list[str] = []
+
+    if pd.notna(p_day):
+        direction = "en hausse" if p_day > 0 else "en baisse" if p_day < 0 else "stable"
+        lines.append(f"Le portefeuille termine la dernière séance {direction} de {fmt_pct_signed(p_day)}.")
+
+    if best and worst:
+        lines.append(
+            f"La meilleure contribution provient de {best.get('ticker')} "
+            f"({fmt_pct_signed(best.get('contrib_1d'))}), tandis que {worst.get('ticker')} "
+            f"pèse le plus négativement ({fmt_pct_signed(worst.get('contrib_1d'))})."
+        )
+
+    if pd.notna(p_5d) and pd.notna(p_20d):
+        if p_5d > 0 and p_20d < 0:
+            lines.append(
+                f"Le momentum court terme reste positif sur 5 jours ({fmt_pct_signed(p_5d)}), "
+                f"mais la performance 20 jours demeure négative ({fmt_pct_signed(p_20d)})."
+            )
+        elif p_5d > 0 and p_20d > 0:
+            lines.append(
+                f"Le momentum est positif à court et moyen terme, avec {fmt_pct_signed(p_5d)} sur 5 jours "
+                f"et {fmt_pct_signed(p_20d)} sur 20 jours."
+            )
+        elif p_5d < 0 and p_20d < 0:
+            lines.append(
+                f"Le portefeuille présente une dynamique négative, avec {fmt_pct_signed(p_5d)} sur 5 jours "
+                f"et {fmt_pct_signed(p_20d)} sur 20 jours."
+            )
+        else:
+            lines.append(
+                f"La dynamique est contrastée : {fmt_pct_signed(p_5d)} sur 5 jours "
+                f"et {fmt_pct_signed(p_20d)} sur 20 jours."
+            )
+
+    if pd.notna(p_vol):
+        lines.append(f"La volatilité annualisée 20 jours ressort à {fmt_pct_signed(p_vol)}.")
+
+    if pd.notna(p_dd):
+        lines.append(f"Le drawdown pondéré estimé sur la fenêtre de rapport atteint {fmt_pct_signed(p_dd)}.")
+
+    if top_risk:
+        lines.append(
+            f"L'actif le plus risqué sur la base de la volatilité 20 jours est {top_risk.get('ticker')} "
+            f"({fmt_pct_signed(top_risk.get('vol_20d_ann'))})."
+        )
+
+    if risk_alerts:
+        lines.append(f"Nombre d'alertes détectées : {len(risk_alerts)}.")
+
+    return lines
+
+
+def build_summary(
+    report_df: pd.DataFrame,
+    params: ReportParams,
+    start_date,
+    end_date,
+    elapsed_s: float,
+    snapshot: dict[str, Any],
+    executive_summary: list[str],
+    risk_alerts: list[str],
+) -> list[str]:
     ok_df = report_df[report_df.get("status") == "ok"].copy() if "status" in report_df.columns else pd.DataFrame()
 
     lines: list[str] = []
     lines.append(f"- **Tickers**: {', '.join(params.tickers)}")
     lines.append(f"- **Source tickers**: {'Portfolio (Quant B)' if params.tickers_source == 'portfolio' else 'Fallback (env/default)'}")
+    lines.append(f"- **Source poids**: {params.weights_source}")
     lines.append(f"- **Lookback**: {params.lookback_days} jours (de {start_date} à {end_date})")
     lines.append(f"- **Généré le**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (heure locale)")
     lines.append(f"- **Couverture**: {len(ok_df)}/{len(params.tickers)} tickers OK")
     lines.append(f"- **Temps d'exécution**: {elapsed_s:.2f}s")
+
+    lines.append("")
+    lines.append("**Executive Summary**")
+    for s in executive_summary:
+        lines.append(f"- {s}")
+
+    lines.append("")
+    lines.append("**Portfolio Snapshot**")
+    if snapshot.get("available"):
+        lines.append(f"- Performance jour: {fmt_pct_signed(snapshot.get('portfolio_daily_return'))}")
+        lines.append(f"- Performance 5 jours: {fmt_pct_signed(snapshot.get('portfolio_ret_5d'))}")
+        lines.append(f"- Performance 20 jours: {fmt_pct_signed(snapshot.get('portfolio_ret_20d'))}")
+        lines.append(f"- Performance 252 jours: {fmt_pct_signed(snapshot.get('portfolio_ret_252d'))}")
+        lines.append(f"- Volatilité 20j annualisée: {fmt_pct_signed(snapshot.get('portfolio_vol_20d_ann'))}")
+        lines.append(f"- Max drawdown portefeuille: {fmt_pct_signed(snapshot.get('portfolio_max_drawdown'))}")
+        lines.append(f"- Meilleur jour portefeuille: {fmt_pct_signed(snapshot.get('portfolio_best_day'))}")
+        lines.append(f"- Pire jour portefeuille: {fmt_pct_signed(snapshot.get('portfolio_worst_day'))}")
+        lines.append(f"- Observations portefeuille: {snapshot.get('portfolio_obs', '')}")
+    else:
+        lines.append("- Aucun snapshot portefeuille disponible.")
+
+    lines.append("")
+    lines.append("**Risk Alerts**")
+    for a in risk_alerts:
+        lines.append(f"- {a}")
 
     if ok_df.empty:
         lines.append("")
@@ -218,20 +769,106 @@ def build_summary(report_df: pd.DataFrame, params: ReportParams, start_date, end
 
     best_day, worst_day = _best_worst("daily_return")
     most_vol_best, _ = _best_worst("vol_20d_ann")
-    _, worst_dd = _best_worst("max_drawdown")  # plus négatif = pire
+    _, worst_dd = _best_worst("max_drawdown")
 
     lines.append("")
-    lines.append("**Highlights (dernière séance / métriques clés)**")
+    lines.append("**Highlights actifs**")
     if best_day is not None:
-        lines.append(f"- Meilleure perf jour: {best_day['ticker']} ({fmt_pct(best_day['daily_return'])})")
+        lines.append(f"- Meilleure perf jour: {best_day['ticker']} ({fmt_pct_signed(best_day['daily_return'])})")
     if worst_day is not None:
-        lines.append(f"- Pire perf jour: {worst_day['ticker']} ({fmt_pct(worst_day['daily_return'])})")
+        lines.append(f"- Pire perf jour: {worst_day['ticker']} ({fmt_pct_signed(worst_day['daily_return'])})")
     if most_vol_best is not None:
-        lines.append(f"- Plus volatil (20j annualisé): {most_vol_best['ticker']} ({fmt_pct(most_vol_best['vol_20d_ann'])})")
+        lines.append(f"- Plus volatil (20j annualisé): {most_vol_best['ticker']} ({fmt_pct_signed(most_vol_best['vol_20d_ann'])})")
     if worst_dd is not None:
-        lines.append(f"- Pire max drawdown (lookback): {worst_dd['ticker']} ({fmt_pct(worst_dd['max_drawdown'])})")
+        lines.append(f"- Pire max drawdown (lookback): {worst_dd['ticker']} ({fmt_pct_signed(worst_dd['max_drawdown'])})")
 
     return lines
+
+
+# ------------------------------------------------------------
+# HTML rendering
+# ------------------------------------------------------------
+def _format_html_table(df: pd.DataFrame) -> str:
+    display = df.copy()
+
+    pct_cols = [
+        "weight",
+        "daily_return",
+        "ret_5d",
+        "ret_20d",
+        "ret_252d",
+        "vol_20d_ann",
+        "max_drawdown",
+        "contrib_1d",
+        "contrib_5d",
+        "contrib_20d",
+    ]
+    num_cols = ["open", "high", "low", "close", "high_52w", "low_52w"]
+    int_cols = ["volume", "avg_vol_20d", "obs"]
+
+    for c in pct_cols:
+        if c in display.columns:
+            display[c] = display[c].apply(style_pct_html)
+
+    for c in num_cols:
+        if c in display.columns:
+            display[c] = display[c].apply(lambda v: style_num_html(v, 2))
+
+    for c in int_cols:
+        if c in display.columns:
+            display[c] = display[c].apply(style_int_html)
+
+    if "status" in display.columns:
+        display["status"] = display["status"].apply(format_status_html)
+
+    return display.to_html(index=False, escape=False, classes="report-table")
+
+
+def format_status_html(v: Any) -> str:
+    s = str(v or "").strip().lower()
+    if s == "ok":
+        return "<span class='badge ok'>OK</span>"
+    if s in ("no_data", "nodata", "empty"):
+        return "<span class='badge bad'>NO DATA</span>"
+    if s:
+        return f"<span class='badge warn'>{s.upper()}</span>"
+    return "<span class='badge warn'>N/A</span>"
+
+
+def kpi_card(label: str, value: Any, is_pct: bool = True) -> str:
+    if is_pct:
+        val = style_pct_html(value)
+    else:
+        val = style_num_html(value)
+    if not val:
+        val = "—"
+    return f"""
+    <div class="kpi">
+      <div class="kpi-label">{label}</div>
+      <div class="kpi-value">{val}</div>
+    </div>
+    """
+
+
+def text_list_html(items: list[str]) -> str:
+    if not items:
+        return "<li>—</li>"
+    return "".join(f"<li>{x}</li>" for x in items)
+
+
+def contribution_table_html(report_df: pd.DataFrame) -> str:
+    cols = ["ticker", "weight", "daily_return", "contrib_1d", "ret_5d", "contrib_5d", "ret_20d", "contrib_20d"]
+    df = report_df.copy()
+    for c in cols:
+        if c not in df.columns:
+            df[c] = np.nan
+    df = df[cols].copy()
+
+    sort_col = pd.to_numeric(df["contrib_1d"], errors="coerce")
+    if sort_col.notna().any():
+        df = df.assign(_sort=sort_col).sort_values("_sort", ascending=False).drop(columns="_sort")
+
+    return _format_html_table(df)
 
 
 def write_html_report(
@@ -240,112 +877,24 @@ def write_html_report(
     tickers: list[str],
     lookback_days: int,
     summary_lines: list[str],
+    executive_summary: list[str],
+    risk_alerts: list[str],
+    snapshot: dict[str, Any],
     full_df: pd.DataFrame,
 ):
-    df = full_df.copy()
+    full_table_html = _format_html_table(full_df)
+    contrib_html = contribution_table_html(full_df)
 
-    # --- KPI (robustes) ---
-    def _safe_num(s):
-        return pd.to_numeric(s, errors="coerce")
-
-    best_day = None
-    worst_day = None
-    most_vol = None
-    worst_dd = None
-
-    if "daily_return" in df.columns:
-        s = _safe_num(df["daily_return"])
-        if s.notna().any():
-            best_day = df.loc[s.idxmax()]
-            worst_day = df.loc[s.idxmin()]
-
-    if "vol_20d_ann" in df.columns:
-        s = _safe_num(df["vol_20d_ann"])
-        if s.notna().any():
-            most_vol = df.loc[s.idxmax()]
-
-    if "max_drawdown" in df.columns:
-        s = _safe_num(df["max_drawdown"])
-        if s.notna().any():
-            worst_dd = df.loc[s.idxmin()]  # plus négatif
-
-    # --- Format pour affichage HTML (avec couleurs) ---
-    pct_cols = ["daily_return", "ret_5d", "ret_20d", "ret_252d", "vol_20d_ann", "max_drawdown"]
-    num_cols = ["open", "high", "low", "close", "high_52w", "low_52w"]
-    int_cols = ["volume", "avg_vol_20d", "obs"]
-
-    def fmt_num(v, digits=2):
-        x = pd.to_numeric(v, errors="coerce")
-        if pd.isna(x):
-            return ""
-        return f"{float(x):,.{digits}f}".replace(",", " ")
-
-    def fmt_int(v):
-        x = pd.to_numeric(v, errors="coerce")
-        if pd.isna(x):
-            return ""
-        return f"{int(round(float(x))):,}".replace(",", " ")
-
-    def fmt_pct(v):
-        x = pd.to_numeric(v, errors="coerce")
-        if pd.isna(x):
-            return ""
-        val = float(x) * 100.0
-        cls = "pos" if val > 0 else "neg" if val < 0 else "zero"
-        sign = "+" if val > 0 else ""
-        return f"<span class='{cls}'>{sign}{val:.2f}%</span>"
-
-    def fmt_status(v):
-        s = str(v or "").strip().lower()
-        if s == "ok":
-            return "<span class='badge ok'>OK</span>"
-        if s in ("no_data", "nodata", "empty"):
-            return "<span class='badge bad'>NO DATA</span>"
-        if s:
-            return f"<span class='badge warn'>{s.upper()}</span>"
-        return "<span class='badge warn'>N/A</span>"
-
-    # colonnes percent -> spans colorés
-    for c in pct_cols:
-        if c in df.columns:
-            df[c] = df[c].apply(fmt_pct)
-
-    for c in num_cols:
-        if c in df.columns:
-            df[c] = df[c].apply(lambda v: fmt_num(v, 2))
-
-    for c in int_cols:
-        if c in df.columns:
-            df[c] = df[c].apply(fmt_int)
-
-    if "status" in df.columns:
-        df["status"] = df["status"].apply(fmt_status)
-
-    # Summary bullets (comme avant, mais propre)
     bullets = [ln[2:] for ln in summary_lines if ln.strip().startswith("- ")]
     bullets = [b.replace("**", "").replace("`", "") for b in bullets]
-    bullets_html = "".join([f"<li>{b}</li>" for b in bullets]) if bullets else "<li>—</li>"
-
-    # Table HTML (escape=False pour garder nos <span>)
-    table_html = df.to_html(index=False, escape=False, classes="report-table")
-
-    def kpi_line(label, row, col, is_pct=True):
-        if row is None or col not in row:
-            return f"<div class='kpi'><div class='kpi-label'>{label}</div><div class='kpi-value'>—</div></div>"
-        t = row.get("ticker", "—")
-        raw = row.get(col, None)
-        if is_pct:
-            val = fmt_pct(raw)
-        else:
-            val = fmt_num(raw, 2)
-        return f"<div class='kpi'><div class='kpi-label'>{label}</div><div class='kpi-value'>{t} · {val}</div></div>"
+    bullets_html = text_list_html(bullets)
 
     html = f"""<!doctype html>
 <html lang="fr">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Daily Report — {stamp}</title>
+  <title>Daily Report V2 — {stamp}</title>
   <style>
     :root {{
       --bg: #f6f8fb;
@@ -358,6 +907,8 @@ def write_html_report(
       --bad-bg:#fee2e2; --bad-tx:#991b1b;
       --wa-bg:#ffedd5; --wa-tx:#9a3412;
       --pos:#059669; --neg:#dc2626; --zero:#374151;
+      --navy:#0b1220;
+      --blue:#2563eb;
     }}
     * {{ box-sizing: border-box; }}
     body {{
@@ -367,15 +918,15 @@ def write_html_report(
       color: var(--text);
     }}
     .container {{
-      max-width: 1180px;
+      max-width: 1240px;
       margin: 0 auto;
       padding: 22px 18px 46px;
     }}
     .header {{
-      background: #0b1220;
+      background: var(--navy);
       color: #f9fafb;
       border-radius: 16px;
-      padding: 18px 18px;
+      padding: 20px 20px;
       box-shadow: var(--shadow);
     }}
     .header h1 {{
@@ -389,11 +940,17 @@ def write_html_report(
       font-size: 13px;
       line-height: 1.35;
     }}
+    .section-title {{
+      margin: 20px 0 10px;
+      font-size: 20px;
+      font-weight: 800;
+      color: #111827;
+    }}
     .grid {{
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
       gap: 12px;
-      margin-top: 14px;
+      margin-top: 12px;
     }}
     .card {{
       background: var(--panel);
@@ -410,36 +967,32 @@ def write_html_report(
       color: var(--muted);
       font-size: 12px;
     }}
-
     .kpi {{
       display: flex;
       flex-direction: column;
       gap: 6px;
-      padding: 10px 10px;
+      padding: 12px 12px;
       border: 1px solid var(--border);
       border-radius: 14px;
       background: #fff;
     }}
     .kpi-label {{ color: var(--muted); font-size: 12px; }}
-    .kpi-value {{ font-weight: 700; font-size: 14px; }}
-
-    .pos {{ color: var(--pos); font-weight: 700; }}
-    .neg {{ color: var(--neg); font-weight: 700; }}
-    .zero {{ color: var(--zero); font-weight: 700; }}
-
+    .kpi-value {{ font-weight: 800; font-size: 18px; }}
+    .pos {{ color: var(--pos); font-weight: 800; }}
+    .neg {{ color: var(--neg); font-weight: 800; }}
+    .zero {{ color: var(--zero); font-weight: 800; }}
     .badge {{
       display: inline-block;
       padding: 2px 10px;
       border-radius: 999px;
       font-size: 12px;
-      font-weight: 700;
+      font-weight: 800;
       letter-spacing: .3px;
       white-space: nowrap;
     }}
     .badge.ok {{ background: var(--ok-bg); color: var(--ok-tx); }}
     .badge.bad {{ background: var(--bad-bg); color: var(--bad-tx); }}
     .badge.warn {{ background: var(--wa-bg); color: var(--wa-tx); }}
-
     .wrap {{
       overflow: auto;
       border: 1px solid var(--border);
@@ -447,7 +1000,6 @@ def write_html_report(
       background: var(--panel);
       box-shadow: var(--shadow);
     }}
-
     table.report-table {{
       width: 100%;
       border-collapse: separate;
@@ -479,10 +1031,16 @@ def write_html_report(
     table.report-table th:first-child {{
       text-align: left;
     }}
-
     ul {{ margin: 10px 0 0 18px; }}
-    li {{ margin: 6px 0; }}
-
+    li {{ margin: 6px 0; line-height: 1.35; }}
+    .alert-list li {{
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      color: #7c2d12;
+      list-style-position: inside;
+    }}
     .footer {{
       margin-top: 10px;
       color: var(--muted);
@@ -494,40 +1052,62 @@ def write_html_report(
   <div class="container">
 
     <div class="header">
-      <h1>Daily Report — {stamp}</h1>
+      <h1>Daily Report V2 — {stamp}</h1>
       <div class="meta">
         Generated by cron on Linux VM · Lookback: {lookback_days} days · Tickers: {", ".join(tickers)}
       </div>
     </div>
 
-    <div class="grid">
-      <div class="card">
-        <h2>Highlights</h2>
-        <div class="grid" style="margin-top:0;">
-          {kpi_line("Meilleure perf jour", best_day, "daily_return", is_pct=True)}
-          {kpi_line("Pire perf jour", worst_day, "daily_return", is_pct=True)}
-          {kpi_line("Plus volatil (20j ann.)", most_vol, "vol_20d_ann", is_pct=True)}
-          {kpi_line("Pire max drawdown", worst_dd, "max_drawdown", is_pct=True)}
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>Summary</h2>
-        <ul>
-          {bullets_html}
-        </ul>
-        <div class="footer">Note: les colonnes return/vol/drawdown sont affichées en %.</div>
-      </div>
+    <div class="section-title">Executive Summary</div>
+    <div class="card">
+      <ul>
+        {text_list_html(executive_summary)}
+      </ul>
     </div>
 
-    <div style="height:14px"></div>
+    <div class="section-title">Portfolio Snapshot</div>
+    <div class="grid">
+      {kpi_card("Performance jour", snapshot.get("portfolio_daily_return"))}
+      {kpi_card("Performance 5 jours", snapshot.get("portfolio_ret_5d"))}
+      {kpi_card("Performance 20 jours", snapshot.get("portfolio_ret_20d"))}
+      {kpi_card("Performance 252 jours", snapshot.get("portfolio_ret_252d"))}
+      {kpi_card("Volatilité 20j ann.", snapshot.get("portfolio_vol_20d_ann"))}
+      {kpi_card("Max drawdown portefeuille", snapshot.get("portfolio_max_drawdown"))}
+      {kpi_card("Meilleur jour portefeuille", snapshot.get("portfolio_best_day"))}
+      {kpi_card("Pire jour portefeuille", snapshot.get("portfolio_worst_day"))}
+    </div>
+    <div class="footer">
+      Les métriques portefeuille sont calculées à partir des poids enregistrés dans Quant B et d'une série temporelle portefeuille reconstruite à partir des prix alignés.
+    </div>
 
+    <div class="section-title">Risk Alerts</div>
     <div class="card">
-      <h2>Full Table</h2>
+      <ul class="alert-list">
+        {text_list_html(risk_alerts)}
+      </ul>
+    </div>
+
+    <div class="section-title">Performance Contribution</div>
+    <div class="card">
       <div class="wrap">
-        {table_html}
+        {contrib_html}
       </div>
-      <div class="footer">Astuce: scroll horizontal si nécessaire.</div>
+      <div class="footer">Contribution = poids portefeuille × rendement de l'actif.</div>
+    </div>
+
+    <div class="section-title">Summary Metadata</div>
+    <div class="card">
+      <ul>
+        {bullets_html}
+      </ul>
+    </div>
+
+    <div class="section-title">Full Asset Table</div>
+    <div class="card">
+      <div class="wrap">
+        {full_table_html}
+      </div>
+      <div class="footer">Les colonnes return, contribution, volatilité et drawdown sont affichées en %.</div>
     </div>
 
   </div>
@@ -539,31 +1119,43 @@ def write_html_report(
         f.write(html)
 
 
-
 # ------------------------------------------------------------
 # Main
 # ------------------------------------------------------------
 def main():
     t0 = time.time()
 
-    # 1) Tick ers from Portfolio state (Quant B) if available
+    # 1) Tickers from Portfolio state if available
     tickers_portfolio: list[str] = []
+    raw_weights: dict[str, float] = {}
+
     if get_portfolio_tickers is not None:
         tickers_portfolio = get_portfolio_tickers()
 
+    if get_portfolio_weights is not None:
+        raw_weights = get_portfolio_weights()
+
     # 2) Fallback: env/default
     tickers_fallback = os.environ.get("QP_REPORT_TICKERS", "AAPL,MSFT,SPY,BTC-USD").split(",")
-    tickers_fallback = [t.strip() for t in tickers_fallback if t.strip()]
+    tickers_fallback = [t.strip().upper() for t in tickers_fallback if t.strip()]
 
     if tickers_portfolio:
-        tickers = tickers_portfolio
+        tickers = [t.strip().upper() for t in tickers_portfolio if str(t).strip()]
         tickers_source = "portfolio"
     else:
         tickers = tickers_fallback
         tickers_source = "env_default"
 
+    weights = normalize_weights(tickers, raw_weights if tickers_source == "portfolio" else {})
+    weights_source = "Portfolio weights" if tickers_source == "portfolio" and raw_weights else "Equal-weight fallback"
+
     lookback_days = int(os.environ.get("QP_REPORT_LOOKBACK_DAYS", "365"))
-    params = ReportParams(tickers=tickers, lookback_days=lookback_days, tickers_source=tickers_source)
+    params = ReportParams(
+        tickers=tickers,
+        lookback_days=lookback_days,
+        tickers_source=tickers_source,
+        weights_source=weights_source,
+    )
 
     now = datetime.now()
     start_date = (now - timedelta(days=lookback_days)).date()
@@ -571,6 +1163,23 @@ def main():
 
     rows = [compute_asset_report(t, start_date=start_date, end_date=end_date) for t in tickers]
     report_df = pd.DataFrame(rows)
+    report_df = enrich_with_weights_and_contributions(report_df, weights)
+
+    # V2.1 — Reconstruction exacte de la série temporelle portefeuille
+    portfolio_ts = compute_portfolio_timeseries(
+        tickers=tickers,
+        weights=weights,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+    snapshot = compute_portfolio_snapshot_from_timeseries(
+        report_df=report_df,
+        portfolio_ts=portfolio_ts,
+    )
+
+    risk_alerts = build_risk_alerts(report_df, snapshot)
+    executive_summary = build_executive_summary(report_df, snapshot, risk_alerts)
 
     reports_dir = os.path.join(REPO_ROOT, "reports", "outputs")
     logs_dir = os.path.join(REPO_ROOT, "logs")
@@ -583,38 +1192,93 @@ def main():
     md_path = os.path.join(reports_dir, f"daily_report_{stamp}.md")
     html_path = os.path.join(reports_dir, f"daily_report_{stamp}.html")
 
+    elapsed = time.time() - t0
+    summary_lines = build_summary(
+        report_df=report_df,
+        params=params,
+        start_date=start_date,
+        end_date=end_date,
+        elapsed_s=elapsed,
+        snapshot=snapshot,
+        executive_summary=executive_summary,
+        risk_alerts=risk_alerts,
+    )
 
+    # CSV enrichi
     report_df.to_csv(csv_path, index=False)
 
-    elapsed = time.time() - t0
-    summary_lines = build_summary(report_df, params, start_date, end_date, elapsed_s=elapsed)
-
-    # Markdown table compacte (lisible)
+    # Markdown enrichi
     display_cols_md = [
-        "ticker", "status", "date",
+        "ticker",
+        "status",
+        "weight",
+        "date",
         "close",
-        "daily_return", "ret_20d", "ret_252d",
-        "vol_20d_ann", "max_drawdown",
+        "daily_return",
+        "contrib_1d",
+        "ret_5d",
+        "contrib_5d",
+        "ret_20d",
+        "contrib_20d",
+        "ret_252d",
+        "vol_20d_ann",
+        "max_drawdown",
     ]
+
     for c in display_cols_md:
         if c not in report_df.columns:
             report_df[c] = np.nan
 
     display_df_md = report_df[display_cols_md].copy()
     display_df_md["close"] = display_df_md["close"].apply(lambda x: fmt_num(x, 2))
-    for c in ["daily_return", "ret_20d", "ret_252d", "vol_20d_ann", "max_drawdown"]:
-        display_df_md[c] = display_df_md[c].apply(lambda x: fmt_pct(x, 2))
+
+    for c in [
+        "weight",
+        "daily_return",
+        "contrib_1d",
+        "ret_5d",
+        "contrib_5d",
+        "ret_20d",
+        "contrib_20d",
+        "ret_252d",
+        "vol_20d_ann",
+        "max_drawdown",
+    ]:
+        display_df_md[c] = display_df_md[c].apply(lambda x: fmt_pct_signed(x, 2))
 
     with open(md_path, "w", encoding="utf-8") as f:
-        f.write(f"# Daily Report — {stamp}\n\n")
+        f.write(f"# Daily Report V2 — {stamp}\n\n")
 
-        f.write("## Summary\n\n")
+        f.write("## Executive Summary\n\n")
+        for line in executive_summary:
+            f.write(f"- {line}\n")
+
+        f.write("\n## Portfolio Snapshot\n\n")
+        if snapshot.get("available"):
+            f.write(f"- **Performance jour**: {fmt_pct_signed(snapshot.get('portfolio_daily_return'))}\n")
+            f.write(f"- **Performance 5 jours**: {fmt_pct_signed(snapshot.get('portfolio_ret_5d'))}\n")
+            f.write(f"- **Performance 20 jours**: {fmt_pct_signed(snapshot.get('portfolio_ret_20d'))}\n")
+            f.write(f"- **Performance 252 jours**: {fmt_pct_signed(snapshot.get('portfolio_ret_252d'))}\n")
+            f.write(f"- **Volatilité 20j annualisée**: {fmt_pct_signed(snapshot.get('portfolio_vol_20d_ann'))}\n")
+            f.write(f"- **Max drawdown portefeuille**: {fmt_pct_signed(snapshot.get('portfolio_max_drawdown'))}\n")
+            f.write(f"- **Meilleur jour portefeuille**: {fmt_pct_signed(snapshot.get('portfolio_best_day'))}\n")
+            f.write(f"- **Pire jour portefeuille**: {fmt_pct_signed(snapshot.get('portfolio_worst_day'))}\n")
+            f.write(f"- **Observations portefeuille**: {snapshot.get('portfolio_obs', '')}\n")
+            f.write(f"- **Période portefeuille**: {snapshot.get('portfolio_first_date', '')} → {snapshot.get('portfolio_last_date', '')}\n")
+        else:
+            f.write("- Aucun snapshot portefeuille disponible.\n")
+
+        f.write("\n## Risk Alerts\n\n")
+        for alert in risk_alerts:
+            f.write(f"- {alert}\n")
+
+        f.write("\n## Summary Metadata\n\n")
         for ln in summary_lines:
             f.write(f"{ln}\n")
 
         f.write(f"\n- **Version HTML complète**: daily_report_{stamp}.html\n\n")
 
-        f.write("## Table — Asset Metrics (compact)\n\n")
+        f.write("## Table — Portfolio Contributions & Asset Metrics\n\n")
         try:
             f.write(display_df_md.to_markdown(index=False))
         except Exception:
@@ -622,10 +1286,12 @@ def main():
         f.write("\n\n")
 
         f.write("## Notes\n\n")
+        f.write("- `weight` = poids du ticker dans le portefeuille Quant B, normalisé à 100%.\n")
+        f.write("- `contrib_1d/5d/20d` = poids × rendement de l'actif sur l'horizon correspondant.\n")
         f.write("- `daily_return` = variation de clôture jour / jour.\n")
         f.write("- `vol_20d_ann` = volatilité annualisée basée sur les rendements des 20 dernières séances.\n")
-        f.write("- `max_drawdown` = drawdown maximum sur la période du rapport (lookback).\n")
-        f.write("- `ret_20d/252d` = rendement sur ~20 / 252 séances.\n")
+        f.write("- `max_drawdown` = drawdown maximum sur la période du rapport.\n")
+        f.write("- Les métriques portefeuille sont calculées sur une série temporelle reconstruite à partir des prix alignés et des poids enregistrés dans Quant B.\n")
 
     write_html_report(
         html_path=html_path,
@@ -633,6 +1299,9 @@ def main():
         tickers=tickers,
         lookback_days=lookback_days,
         summary_lines=summary_lines,
+        executive_summary=executive_summary,
+        risk_alerts=risk_alerts,
+        snapshot=snapshot,
         full_df=report_df,
     )
 
