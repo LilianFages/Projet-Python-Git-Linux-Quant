@@ -653,7 +653,7 @@ def make_seasonality_heatmap(df: pd.DataFrame, return_col: str = "strategy_retur
 
     monthly_df = (
         df_copy.set_index("date")["ret_factor"]
-        .resample("M")  # plus compatible que "ME"
+        .resample("ME")  # plus compatible que "ME"
         .prod()
         .sub(1.0)
         .reset_index()
