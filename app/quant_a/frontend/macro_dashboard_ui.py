@@ -282,6 +282,7 @@ def prepare_market_board(macro_df: pd.DataFrame) -> pd.DataFrame:
         "daily_return",
         "ret_5d",
         "ret_20d",
+        "ret_ytd",
         "ret_252d",
         "vol_20d_ann",
         "distance_sma_50",
@@ -304,6 +305,7 @@ def prepare_market_board(macro_df: pd.DataFrame) -> pd.DataFrame:
         "daily_return": "1D",
         "ret_5d": "5D",
         "ret_20d": "20D",
+        "ret_ytd": "YTD",
         "ret_252d": "252D",
         "vol_20d_ann": "Vol 20D Ann.",
         "distance_sma_50": "Dist. SMA50",
@@ -316,6 +318,7 @@ def prepare_market_board(macro_df: pd.DataFrame) -> pd.DataFrame:
     df["ret_5d"] = df["ret_5d"].apply(lambda x: macro_pct(x, 2))
     df["ret_20d"] = df["ret_20d"].apply(lambda x: macro_pct(x, 2))
     df["ret_252d"] = df["ret_252d"].apply(lambda x: macro_pct(x, 2))
+    df["ret_ytd"] = df["ret_ytd"].apply(lambda x: macro_pct(x, 2))
     df["vol_20d_ann"] = df["vol_20d_ann"].apply(lambda x: macro_pct(x, 2))
     df["distance_sma_50"] = df["distance_sma_50"].apply(lambda x: macro_pct(x, 2))
     df["distance_sma_200"] = df["distance_sma_200"].apply(lambda x: macro_pct(x, 2))
@@ -743,6 +746,7 @@ def prepare_heatmap_data(macro_df: pd.DataFrame) -> pd.DataFrame:
         "daily_return",
         "ret_5d",
         "ret_20d",
+        "ret_ytd",
         "ret_252d",
         "distance_sma_50",
         "distance_sma_200",
@@ -761,11 +765,11 @@ def prepare_heatmap_data(macro_df: pd.DataFrame) -> pd.DataFrame:
         "daily_return",
         "ret_5d",
         "ret_20d",
+        "ret_ytd",
         "ret_252d",
         "distance_sma_50",
         "distance_sma_200",
     ]
-
     for col in metric_cols:
         df[col] = pd.to_numeric(df[col], errors="coerce") * 100
 
@@ -775,6 +779,7 @@ def prepare_heatmap_data(macro_df: pd.DataFrame) -> pd.DataFrame:
         "daily_return": "1D",
         "ret_5d": "5D",
         "ret_20d": "20D",
+        "ret_ytd": "YTD",
         "ret_252d": "252D",
         "distance_sma_50": "Dist. SMA50",
         "distance_sma_200": "Dist. SMA200",
@@ -790,7 +795,7 @@ def style_heatmap(df: pd.DataFrame):
     if df is None or df.empty:
         return df
 
-    numeric_cols = ["1D", "5D", "20D", "252D", "Dist. SMA50", "Dist. SMA200"]
+    numeric_cols = ["1D", "5D", "20D", "YTD", "252D", "Dist. SMA50", "Dist. SMA200"]
     existing_numeric_cols = [c for c in numeric_cols if c in df.columns]
 
     return (

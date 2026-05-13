@@ -93,6 +93,29 @@ def safe_float(value: Any) -> float:
     except Exception:
         return np.nan
 
+def compute_ytd_return(close: pd.Series) -> float:
+    """
+    Calcule la performance year-to-date à partir de la première observation disponible
+    de l'année courante dans la série de clôture.
+    """
+    c = pd.to_numeric(close, errors="coerce").dropna()
+
+    if c.empty:
+        return np.nan
+
+    try:
+        last_date = pd.to_datetime(c.index[-1])
+        year_start = pd.Timestamp(year=last_date.year, month=1, day=1)
+
+        ytd_series = c[c.index >= year_start]
+
+        if len(ytd_series) < 2:
+            return np.nan
+
+        return float(ytd_series.iloc[-1] / ytd_series.iloc[0] - 1.0)
+
+    except Exception:
+        return np.nan
 
 def safe_return(close: pd.Series, periods: int) -> float:
     """
@@ -258,6 +281,7 @@ def compute_macro_report(start_date, end_date) -> pd.DataFrame:
                 ret_5d = safe_return(close, periods=5)
                 ret_20d = safe_return(close, periods=20)
                 ret_252d = safe_return(close, periods=252)
+                ret_ytd = compute_ytd_return(close)
                 vol_20d_ann = realized_vol_annualized(returns, window=20)
 
                 sma_50 = float(close.tail(50).mean()) if len(close) >= 50 else np.nan
@@ -286,6 +310,7 @@ def compute_macro_report(start_date, end_date) -> pd.DataFrame:
                     "ret_5d": ret_5d,
                     "ret_20d": ret_20d,
                     "ret_252d": ret_252d,
+                    "ret_ytd": ret_ytd,
                     "vol_20d_ann": vol_20d_ann,
                     "sma_50": sma_50,
                     "sma_200": sma_200,
@@ -320,6 +345,7 @@ def _empty_macro_row(asset_class: str, name: str, ticker: str, status: str) -> d
         "ret_5d": np.nan,
         "ret_20d": np.nan,
         "ret_252d": np.nan,
+        "ret_ytd": np.nan,
         "vol_20d_ann": np.nan,
         "sma_50": np.nan,
         "sma_200": np.nan,

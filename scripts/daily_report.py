@@ -928,6 +928,7 @@ def render_cross_asset_overview_markdown(macro_df: pd.DataFrame) -> str:
         "daily_return",
         "ret_5d",
         "ret_20d",
+        "ret_ytd",
         "vol_20d_ann",
         "distance_sma_50",
         "distance_sma_200",
@@ -946,6 +947,7 @@ def render_cross_asset_overview_markdown(macro_df: pd.DataFrame) -> str:
     df["daily_return"] = df["daily_return"].apply(lambda x: macro_pct(x, 2))
     df["ret_5d"] = df["ret_5d"].apply(lambda x: macro_pct(x, 2))
     df["ret_20d"] = df["ret_20d"].apply(lambda x: macro_pct(x, 2))
+    df["ret_ytd"] = df["ret_ytd"].apply(lambda x: macro_pct(x, 2))
     df["vol_20d_ann"] = df["vol_20d_ann"].apply(lambda x: macro_pct(x, 2))
     df["distance_sma_50"] = df["distance_sma_50"].apply(lambda x: macro_pct(x, 2))
     df["distance_sma_200"] = df["distance_sma_200"].apply(lambda x: macro_pct(x, 2))
@@ -1115,6 +1117,7 @@ def render_cross_asset_overview_html(macro_df: pd.DataFrame) -> str:
         "daily_return",
         "ret_5d",
         "ret_20d",
+        "ret_ytd",
         "vol_20d_ann",
         "distance_sma_50",
         "distance_sma_200",
@@ -1143,6 +1146,7 @@ def render_cross_asset_overview_html(macro_df: pd.DataFrame) -> str:
           <td class="{macro_pct_class(row.get("daily_return"))}">{macro_pct(row.get("daily_return"))}</td>
           <td class="{macro_pct_class(row.get("ret_5d"))}">{macro_pct(row.get("ret_5d"))}</td>
           <td class="{macro_pct_class(row.get("ret_20d"))}">{macro_pct(row.get("ret_20d"))}</td>
+          <td class="{macro_pct_class(row.get("ret_ytd"))}">{macro_pct(row.get("ret_ytd"))}</td>
           <td>{macro_pct(row.get("vol_20d_ann"))}</td>
           <td class="{macro_pct_class(row.get("distance_sma_50"))}">{macro_pct(row.get("distance_sma_50"))}</td>
           <td class="{macro_pct_class(row.get("distance_sma_200"))}">{macro_pct(row.get("distance_sma_200"))}</td>
@@ -1166,6 +1170,7 @@ def render_cross_asset_overview_html(macro_df: pd.DataFrame) -> str:
               <th>1D</th>
               <th>5D</th>
               <th>20D</th>
+              <th>YTD</th>
               <th>Vol 20D Ann.</th>
               <th>Dist. SMA 50</th>
               <th>Dist. SMA 200</th>
