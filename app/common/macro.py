@@ -761,12 +761,26 @@ def compute_macro_regime(macro_df: pd.DataFrame) -> dict[str, Any]:
                 "Les grands indices actions sont négatifs sur 20 jours, ce qui peut signaler un ralentissement des anticipations de croissance."
             )
 
-    if score >= 2:
+        # ------------------------------------------------------------------
+    # Factor-score based regime overlay
+    # ------------------------------------------------------------------
+    factor_scores = compute_macro_factor_scores(macro_df)
+    factor_score, factor_drivers, factor_flags = compute_regime_score_from_factors(factor_scores)
+
+    # On combine l'ancien score directionnel avec le score factoriel.
+    # L'ancien score garde une lecture momentum simple.
+    # Le factor_score ajoute les pressions macro transversales.
+    combined_score = int(score + factor_score)
+
+    if combined_score >= 2:
         regime = "Risk-On"
-    elif score <= -2:
+    elif combined_score <= -2:
         regime = "Risk-Off"
     else:
         regime = "Neutral"
+
+    flags.extend(factor_flags)
+    drivers.extend(factor_drivers)
 
     flags = list(dict.fromkeys(flags))
     alerts = list(dict.fromkeys(alerts))
@@ -777,10 +791,207 @@ def compute_macro_regime(macro_df: pd.DataFrame) -> dict[str, Any]:
 
     return {
         "regime": regime,
-        "score": score,
+        "score": combined_score,
+        "raw_momentum_score": int(score),
+        "factor_regime_score": int(factor_score),
         "drivers": drivers,
         "alerts": alerts,
         "flags": flags,
+        "factor_scores": factor_scores,
+    }
+
+def compute_macro_factor_scores(macro_df: pd.DataFrame) -> dict[str, Any]:
+    """
+    Calcule des sous-scores macro spécialisés.
+
+    Scores produits :
+    - rates_pressure_score
+    - dollar_strength_score
+    - commodity_pressure_score
+    - risk_appetite_score
+
+    Convention :
+    - score positif = signal présent / pression plus forte
+    - score proche de 0 = signal faible ou mixte
+    """
+
+    if macro_df is None or macro_df.empty:
+        return {
+            "rates_pressure_score": 0,
+            "dollar_strength_score": 0,
+            "commodity_pressure_score": 0,
+            "risk_appetite_score": 0,
+            "details": {
+                "rates": ["Rates data unavailable."],
+                "dollar": ["FX data unavailable."],
+                "commodities": ["Commodity data unavailable."],
+                "risk_appetite": ["Risk appetite data unavailable."],
+            },
+        }
+
+    details = {
+        "rates": [],
+        "dollar": [],
+        "commodities": [],
+        "risk_appetite": [],
+    }
+
+    rates_pressure_score = 0
+    dollar_strength_score = 0
+    commodity_pressure_score = 0
+    risk_appetite_score = 0
+
+    # ------------------------------------------------------------------
+    # Rates pressure
+    # ------------------------------------------------------------------
+    us10_change_5d = get_macro_metric(macro_df, "US 10Y Yield", "change_5d")
+    us10_change_20d = get_macro_metric(macro_df, "US 10Y Yield", "change_20d")
+    us30_change_5d = get_macro_metric(macro_df, "US 30Y Yield", "change_5d")
+    curve_change_20d = get_macro_metric(macro_df, "US 10Y-5Y Spread", "change_20d")
+
+    if pd.notna(us10_change_5d):
+        if us10_change_5d > 0.10:
+            rates_pressure_score += 2
+            details["rates"].append("US 10Y yield is up more than 10 bps over 5 days.")
+        elif us10_change_5d > 0.05:
+            rates_pressure_score += 1
+            details["rates"].append("US 10Y yield is moderately higher over 5 days.")
+        elif us10_change_5d < -0.05:
+            rates_pressure_score -= 1
+            details["rates"].append("US 10Y yield is lower over 5 days.")
+
+    if pd.notna(us10_change_20d):
+        if us10_change_20d > 0.20:
+            rates_pressure_score += 2
+            details["rates"].append("US 10Y yield is materially higher over 20 days.")
+        elif us10_change_20d > 0.10:
+            rates_pressure_score += 1
+            details["rates"].append("US 10Y yield is higher over 20 days.")
+
+    if pd.notna(us30_change_5d) and us30_change_5d > 0.10:
+        rates_pressure_score += 1
+        details["rates"].append("US 30Y yield is also rising, confirming long-end pressure.")
+
+    if pd.notna(curve_change_20d):
+        if curve_change_20d > 0.10:
+            details["rates"].append("The US 10Y-5Y curve is steepening over 20 days.")
+        elif curve_change_20d < -0.10:
+            details["rates"].append("The US 10Y-5Y curve is flattening over 20 days.")
+
+    if not details["rates"]:
+        details["rates"].append("Rates pressure signals are limited or mixed.")
+
+    # ------------------------------------------------------------------
+    # Dollar strength
+    # ------------------------------------------------------------------
+    dxy_5d = get_macro_metric(macro_df, "DXY", "ret_5d")
+    dxy_20d = get_macro_metric(macro_df, "DXY", "ret_20d")
+    eurusd_5d = get_macro_metric(macro_df, "EUR/USD", "ret_5d")
+    usdjpy_5d = get_macro_metric(macro_df, "USD/JPY", "ret_5d")
+
+    if pd.notna(dxy_5d):
+        if dxy_5d > 0.01:
+            dollar_strength_score += 2
+            details["dollar"].append("DXY is up more than 1% over 5 days.")
+        elif dxy_5d > 0:
+            dollar_strength_score += 1
+            details["dollar"].append("DXY is positive over 5 days.")
+        elif dxy_5d < -0.01:
+            dollar_strength_score -= 1
+            details["dollar"].append("DXY is down more than 1% over 5 days.")
+
+    if pd.notna(dxy_20d) and dxy_20d > 0.02:
+        dollar_strength_score += 1
+        details["dollar"].append("DXY is up more than 2% over 20 days.")
+
+    if pd.notna(eurusd_5d) and eurusd_5d < -0.01:
+        dollar_strength_score += 1
+        details["dollar"].append("EUR/USD is down more than 1% over 5 days.")
+
+    if pd.notna(usdjpy_5d) and usdjpy_5d > 0.01:
+        dollar_strength_score += 1
+        details["dollar"].append("USD/JPY is up more than 1% over 5 days.")
+
+    if not details["dollar"]:
+        details["dollar"].append("Dollar strength signals are limited or mixed.")
+
+    # ------------------------------------------------------------------
+    # Commodity pressure
+    # ------------------------------------------------------------------
+    brent_5d = get_macro_metric(macro_df, "Brent", "ret_5d")
+    wti_5d = get_macro_metric(macro_df, "WTI", "ret_5d")
+    natgas_5d = get_macro_metric(macro_df, "Natural Gas", "ret_5d")
+    copper_20d = get_macro_metric(macro_df, "Copper", "ret_20d")
+    gold_5d = get_macro_metric(macro_df, "Gold", "ret_5d")
+
+    if pd.notna(brent_5d) and brent_5d > 0.03:
+        commodity_pressure_score += 2
+        details["commodities"].append("Brent is up more than 3% over 5 days.")
+
+    if pd.notna(wti_5d) and wti_5d > 0.03:
+        commodity_pressure_score += 2
+        details["commodities"].append("WTI is up more than 3% over 5 days.")
+
+    if pd.notna(natgas_5d) and natgas_5d > 0.05:
+        commodity_pressure_score += 2
+        details["commodities"].append("Natural Gas is up more than 5% over 5 days.")
+
+    if pd.notna(copper_20d):
+        if copper_20d > 0.05:
+            commodity_pressure_score += 1
+            details["commodities"].append("Copper is up more than 5% over 20 days.")
+        elif copper_20d < -0.05:
+            commodity_pressure_score -= 1
+            details["commodities"].append("Copper is down more than 5% over 20 days.")
+
+    if pd.notna(gold_5d) and gold_5d > 0.02:
+        details["commodities"].append("Gold is up over 5 days, suggesting defensive or real-rate sensitivity.")
+
+    if not details["commodities"]:
+        details["commodities"].append("Commodity pressure signals are limited or mixed.")
+
+    # ------------------------------------------------------------------
+    # Risk appetite
+    # ------------------------------------------------------------------
+    spx_5d = get_macro_metric(macro_df, "S&P 500", "ret_5d")
+    nasdaq_5d = get_macro_metric(macro_df, "Nasdaq", "ret_5d")
+    bitcoin_5d = get_macro_metric(macro_df, "Bitcoin", "ret_5d")
+    gold_5d = get_macro_metric(macro_df, "Gold", "ret_5d")
+
+    if pd.notna(spx_5d):
+        if spx_5d > 0:
+            risk_appetite_score += 1
+            details["risk_appetite"].append("S&P 500 is positive over 5 days.")
+        else:
+            risk_appetite_score -= 1
+            details["risk_appetite"].append("S&P 500 is negative over 5 days.")
+
+    if pd.notna(nasdaq_5d):
+        if nasdaq_5d > 0:
+            risk_appetite_score += 1
+            details["risk_appetite"].append("Nasdaq is positive over 5 days.")
+        else:
+            risk_appetite_score -= 1
+            details["risk_appetite"].append("Nasdaq is negative over 5 days.")
+
+    if pd.notna(bitcoin_5d) and bitcoin_5d > 0:
+        risk_appetite_score += 1
+        details["risk_appetite"].append("Bitcoin is positive over 5 days.")
+
+    if pd.notna(gold_5d) and pd.notna(spx_5d):
+        if gold_5d > spx_5d and spx_5d < 0:
+            risk_appetite_score -= 1
+            details["risk_appetite"].append("Gold is outperforming equities while equities are negative.")
+
+    if not details["risk_appetite"]:
+        details["risk_appetite"].append("Risk appetite signals are limited or mixed.")
+
+    return {
+        "rates_pressure_score": int(rates_pressure_score),
+        "dollar_strength_score": int(dollar_strength_score),
+        "commodity_pressure_score": int(commodity_pressure_score),
+        "risk_appetite_score": int(risk_appetite_score),
+        "details": details,
     }
 
 
@@ -1024,3 +1235,83 @@ def build_portfolio_macro_interpretation(
         )
 
     return interpretation
+
+def compute_regime_score_from_factors(factor_scores: dict[str, Any]) -> tuple[int, list[str], list[str]]:
+    """
+    Transforme les sous-scores macro en score de régime global.
+
+    Retourne :
+    - regime_score
+    - factor_drivers
+    - factor_flags
+
+    Convention :
+    - Risk Appetite positif pousse le score vers Risk-On.
+    - Rates/Dollar/Commodity pressure poussent le score vers Risk-Off.
+    """
+
+    if not factor_scores:
+        return 0, ["Factor scores unavailable."], []
+
+    rates_score = safe_float(factor_scores.get("rates_pressure_score", 0))
+    dollar_score = safe_float(factor_scores.get("dollar_strength_score", 0))
+    commodity_score = safe_float(factor_scores.get("commodity_pressure_score", 0))
+    risk_score = safe_float(factor_scores.get("risk_appetite_score", 0))
+
+    regime_score = 0
+    factor_drivers: list[str] = []
+    factor_flags: list[str] = []
+
+    # Risk appetite
+    if pd.notna(risk_score):
+        if risk_score >= 3:
+            regime_score += 2
+            factor_drivers.append("Risk appetite score is strongly positive.")
+        elif risk_score >= 1:
+            regime_score += 1
+            factor_drivers.append("Risk appetite score is moderately positive.")
+        elif risk_score <= -2:
+            regime_score -= 2
+            factor_flags.append("Weak Risk Appetite")
+            factor_drivers.append("Risk appetite score is negative.")
+
+    # Rates pressure
+    if pd.notna(rates_score):
+        if rates_score >= 3:
+            regime_score -= 2
+            factor_flags.append("Rates Pressure")
+            factor_drivers.append("Rates pressure score is high.")
+        elif rates_score >= 1:
+            regime_score -= 1
+            factor_flags.append("Rates Pressure")
+            factor_drivers.append("Rates pressure score is moderate.")
+
+    # Dollar strength
+    if pd.notna(dollar_score):
+        if dollar_score >= 3:
+            regime_score -= 2
+            factor_flags.append("Dollar Strength")
+            factor_drivers.append("Dollar strength score is high.")
+        elif dollar_score >= 1:
+            regime_score -= 1
+            factor_flags.append("Dollar Strength")
+            factor_drivers.append("Dollar strength score is moderate.")
+
+    # Commodity pressure
+    if pd.notna(commodity_score):
+        if commodity_score >= 3:
+            regime_score -= 1
+            factor_flags.append("Commodity Pressure")
+            factor_flags.append("Inflation Pressure")
+            factor_drivers.append("Commodity pressure score is high.")
+        elif commodity_score >= 1:
+            factor_flags.append("Commodity Pressure")
+            factor_drivers.append("Commodity pressure score is moderate.")
+
+    factor_flags = list(dict.fromkeys(factor_flags))
+    factor_drivers = list(dict.fromkeys(factor_drivers))
+
+    if not factor_drivers:
+        factor_drivers.append("Factor scores are mixed and do not indicate a dominant regime pressure.")
+
+    return int(regime_score), factor_drivers, factor_flags

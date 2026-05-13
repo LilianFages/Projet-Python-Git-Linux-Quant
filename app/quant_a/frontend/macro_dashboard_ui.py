@@ -150,6 +150,8 @@ def render():
     # ---------------------------------------------------------------------
     render_key_takeaways(key_takeaways)
 
+    render_macro_factor_scores(macro_regime)
+
     with st.expander("Regime details"):
         st.markdown(f"**Regime:** {regime}")
         st.markdown(f"**Score:** {score}")
@@ -949,14 +951,56 @@ def render_trend_distribution(df: pd.DataFrame) -> None:
 # ---------------------------------------------------------------------
 def infer_main_risk_factor(macro_regime: dict[str, Any]) -> tuple[str, str]:
     """
-    Déduit le principal facteur de risque à partir des flags et alerts macro.
-    Retourne :
-    - risk label
-    - description courte
+    Déduit le principal facteur de risque à partir des factor scores.
+    Fallback sur les flags si les factor scores ne sont pas disponibles.
     """
     if not macro_regime:
         return "Unknown", "Macro regime unavailable."
 
+    factor_scores = macro_regime.get("factor_scores", {})
+    details = factor_scores.get("details", {}) if isinstance(factor_scores, dict) else {}
+
+    score_map = {
+        "Rates Pressure": factor_scores.get("rates_pressure_score", 0) if factor_scores else 0,
+        "Dollar Strength": factor_scores.get("dollar_strength_score", 0) if factor_scores else 0,
+        "Commodity Pressure": factor_scores.get("commodity_pressure_score", 0) if factor_scores else 0,
+        "Weak Risk Appetite": -factor_scores.get("risk_appetite_score", 0) if factor_scores else 0,
+    }
+
+    clean_scores = {}
+
+    for key, value in score_map.items():
+        try:
+            clean_scores[key] = float(value)
+        except Exception:
+            clean_scores[key] = 0.0
+
+    if clean_scores:
+        main_risk = max(clean_scores, key=clean_scores.get)
+        main_score = clean_scores.get(main_risk, 0)
+
+        if main_score >= 1:
+            detail_key = {
+                "Rates Pressure": "rates",
+                "Dollar Strength": "dollar",
+                "Commodity Pressure": "commodities",
+                "Weak Risk Appetite": "risk_appetite",
+            }.get(main_risk)
+
+            detail_list = details.get(detail_key, []) if detail_key else []
+            description = detail_list[0] if isinstance(detail_list, list) and detail_list else ""
+
+            if not description:
+                description = {
+                    "Rates Pressure": "Rates pressure is the dominant macro risk factor.",
+                    "Dollar Strength": "Dollar strength is the dominant macro risk factor.",
+                    "Commodity Pressure": "Commodity pressure is the dominant macro risk factor.",
+                    "Weak Risk Appetite": "Weak risk appetite is the dominant macro risk factor.",
+                }.get(main_risk, "A macro risk factor is currently dominant.")
+
+            return main_risk, description
+
+    # Fallback on flags
     flags = macro_regime.get("flags", [])
     alerts = macro_regime.get("alerts", [])
 
@@ -1066,19 +1110,23 @@ def build_key_takeaways(
     regime = macro_regime.get("regime", "N/A") if macro_regime else "N/A"
     score = macro_regime.get("score", "N/A") if macro_regime else "N/A"
     flags = macro_regime.get("flags", []) if macro_regime else []
+    raw_momentum_score = macro_regime.get("raw_momentum_score", None) if macro_regime else None
+    factor_regime_score = macro_regime.get("factor_regime_score", None) if macro_regime else None
 
     risk_label, risk_description = infer_main_risk_factor(macro_regime)
     strongest, weakest = infer_asset_class_leadership(market_pulse)
 
     return {
-        "regime": regime,
-        "score": score,
-        "flags": flags,
-        "main_risk": risk_label,
-        "main_risk_description": risk_description,
-        "strongest_asset_class": strongest,
-        "weakest_asset_class": weakest,
-    }
+    "regime": regime,
+    "score": score,
+    "raw_momentum_score": raw_momentum_score,
+    "factor_regime_score": factor_regime_score,
+    "flags": flags,
+    "main_risk": risk_label,
+    "main_risk_description": risk_description,
+    "strongest_asset_class": strongest,
+    "weakest_asset_class": weakest,
+}
 
 
 def render_key_takeaways(takeaways: dict[str, Any]) -> None:
@@ -1093,6 +1141,8 @@ def render_key_takeaways(takeaways: dict[str, Any]) -> None:
 
     regime = takeaways.get("regime", "N/A")
     score = takeaways.get("score", "N/A")
+    raw_score = takeaways.get("raw_momentum_score", None)
+    factor_score = takeaways.get("factor_regime_score", None)
     flags = takeaways.get("flags", [])
 
     main_risk = takeaways.get("main_risk", "N/A")
@@ -1104,10 +1154,18 @@ def render_key_takeaways(takeaways: dict[str, Any]) -> None:
     c1, c2, c3, c4 = st.columns(4)
 
     with c1:
+        raw_score = takeaways.get("raw_momentum_score", None)
+        factor_score = takeaways.get("factor_regime_score", None)
+
+        if raw_score is not None and factor_score is not None:
+            subtitle = f"Score: {score} · Momentum: {raw_score} · Factors: {factor_score}"
+        else:
+            subtitle = f"Score: {score} · Flags: {len(flags)}"
+
         render_compact_card(
             title="Market Regime",
             value=str(regime),
-            subtitle=f"Score: {score} · Flags: {len(flags)}",
+            subtitle=subtitle,
         )
 
     with c2:
@@ -1321,3 +1379,167 @@ def render_rates_monitor(macro_df: pd.DataFrame) -> None:
         use_container_width=True,
         hide_index=True,
     )
+
+# ---------------------------------------------------------------------
+# Macro Factor Scores helpers — Macro Dashboard V2.4
+# ---------------------------------------------------------------------
+def score_label(score: Any, positive_label: str = "High", neutral_label: str = "Mixed") -> str:
+    """
+    Convertit un score numérique en label lisible.
+    """
+    try:
+        s = float(score)
+    except Exception:
+        return "N/A"
+
+    if s >= 3:
+        return positive_label
+    if s >= 1:
+        return "Moderate"
+    if s <= -1:
+        return "Low"
+    return neutral_label
+
+
+def render_score_card(title: str, score: Any, label: str, subtitle: str = "") -> None:
+    """
+    Carte compacte pour les scores macro spécialisés.
+    """
+    st.markdown(
+        f"""
+        <div style="
+            background:#ffffff;
+            border:1px solid #d1d5db;
+            border-radius:16px;
+            padding:16px 18px;
+            box-shadow:0 1px 3px rgba(0,0,0,0.08);
+            height:135px;
+            overflow:hidden;
+        ">
+            <div style="
+                color:#374151;
+                font-size:12px;
+                font-weight:800;
+                text-transform:uppercase;
+                letter-spacing:0.06em;
+                margin-bottom:8px;
+                white-space:nowrap;
+                overflow:hidden;
+                text-overflow:ellipsis;
+            ">
+                {title}
+            </div>
+            <div style="
+                color:#0f172a;
+                font-size:30px;
+                font-weight:900;
+                line-height:1.05;
+                margin-bottom:6px;
+            ">
+                {score}
+            </div>
+            <div style="
+                color:#111827;
+                font-size:14px;
+                font-weight:700;
+                line-height:1.2;
+                margin-bottom:4px;
+            ">
+                {label}
+            </div>
+            <div style="
+                color:#6b7280;
+                font-size:12px;
+                line-height:1.25;
+                overflow:hidden;
+                display:-webkit-box;
+                -webkit-line-clamp:2;
+                -webkit-box-orient:vertical;
+            ">
+                {subtitle}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_macro_factor_scores(macro_regime: dict[str, Any]) -> None:
+    """
+    Affiche les sous-scores macro spécialisés.
+    """
+    factor_scores = (macro_regime or {}).get("factor_scores", {})
+
+    if not factor_scores:
+        st.info("Macro factor scores unavailable.")
+        return
+
+    rates_score = factor_scores.get("rates_pressure_score", 0)
+    dollar_score = factor_scores.get("dollar_strength_score", 0)
+    commodity_score = factor_scores.get("commodity_pressure_score", 0)
+    risk_score = factor_scores.get("risk_appetite_score", 0)
+
+    details = factor_scores.get("details", {})
+
+    def first_detail(key: str) -> str:
+        values = details.get(key, [])
+        if isinstance(values, list) and values:
+            return str(values[0])
+        return ""
+
+    st.subheader("Macro Factor Scores")
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    with c1:
+        render_score_card(
+            title="Rates Pressure",
+            score=str(rates_score),
+            label=score_label(rates_score, positive_label="High Pressure"),
+            subtitle=first_detail("rates"),
+        )
+
+    with c2:
+        render_score_card(
+            title="Dollar Strength",
+            score=str(dollar_score),
+            label=score_label(dollar_score, positive_label="Strong Dollar"),
+            subtitle=first_detail("dollar"),
+        )
+
+    with c3:
+        render_score_card(
+            title="Commodity Pressure",
+            score=str(commodity_score),
+            label=score_label(commodity_score, positive_label="High Pressure"),
+            subtitle=first_detail("commodities"),
+        )
+
+    with c4:
+        render_score_card(
+            title="Risk Appetite",
+            score=str(risk_score),
+            label=score_label(risk_score, positive_label="Strong"),
+            subtitle=first_detail("risk_appetite"),
+        )
+
+    with st.expander("Factor score details"):
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("**Rates Pressure**")
+            for item in details.get("rates", []):
+                st.markdown(f"- {item}")
+
+            st.markdown("**Dollar Strength**")
+            for item in details.get("dollar", []):
+                st.markdown(f"- {item}")
+
+        with col2:
+            st.markdown("**Commodity Pressure**")
+            for item in details.get("commodities", []):
+                st.markdown(f"- {item}")
+
+            st.markdown("**Risk Appetite**")
+            for item in details.get("risk_appetite", []):
+                st.markdown(f"- {item}")
