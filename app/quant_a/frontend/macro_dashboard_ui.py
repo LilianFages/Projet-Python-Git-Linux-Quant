@@ -6,6 +6,7 @@ import altair as alt
 
 import pandas as pd
 import streamlit as st
+import numpy as np
 
 from app.common.macro import (
     compute_macro_report,
