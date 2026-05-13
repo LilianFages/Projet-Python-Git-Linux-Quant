@@ -1,0 +1,20 @@
+[
+  {
+    "date": "2026-05-13",
+    "category": "Central Banks",
+    "importance": "High",
+    "title": "Fed communication remains a key driver",
+    "summary": "Markets continue to monitor Federal Reserve communication as rate expectations remain central to cross-asset sentiment.",
+    "source": "manual-test",
+    "url": "",
+    "tickers": [
+      "^TNX",
+      "^GSPC"
+    ],
+    "tags": [
+      "Fed",
+      "Rates",
+      "Risk Sentiment"
+    ]
+  }
+]
