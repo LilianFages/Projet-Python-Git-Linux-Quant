@@ -339,6 +339,10 @@ def render_asset_class_monitor(macro_df: pd.DataFrame, asset_class: str) -> None
     if df.empty:
         st.info(f"No data available for {asset_class}.")
         return
+    
+    if asset_class == "Rates":
+        render_rates_monitor(macro_df)
+        return
 
     ok_df = df[df["status"] == "ok"].copy()
     chart_df = prepare_asset_class_chart_data(macro_df, asset_class)
@@ -1127,3 +1131,193 @@ def render_key_takeaways(takeaways: dict[str, Any]) -> None:
             subtitle=f"Avg 5D: {weakest.get('avg_5d', '—')} · Pulse: {weakest.get('pulse', 'N/A')}",
         )
     st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+
+def prepare_rates_change_board(macro_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Prépare une table dédiée aux taux et spreads.
+
+    Contrairement aux actifs classiques, les taux et spreads sont plus lisibles
+    en variations de niveau qu'en rendements relatifs.
+    """
+    if macro_df is None or macro_df.empty:
+        return pd.DataFrame()
+
+    df = macro_df[
+        (macro_df["asset_class"] == "Rates") &
+        (macro_df["status"] == "ok")
+    ].copy()
+
+    if df.empty:
+        return pd.DataFrame()
+
+    display_cols = [
+        "name",
+        "ticker",
+        "last",
+        "change_1d",
+        "change_5d",
+        "change_20d",
+        "change_ytd",
+        "trend",
+    ]
+
+    for col in display_cols:
+        if col not in df.columns:
+            df[col] = pd.NA
+
+    df = df[display_cols].copy()
+
+    df["last"] = df["last"].apply(lambda x: format_num_display(x, 3))
+    df["change_1d"] = df["change_1d"].apply(lambda x: format_num_display(x, 3))
+    df["change_5d"] = df["change_5d"].apply(lambda x: format_num_display(x, 3))
+    df["change_20d"] = df["change_20d"].apply(lambda x: format_num_display(x, 3))
+    df["change_ytd"] = df["change_ytd"].apply(lambda x: format_num_display(x, 3))
+
+    df = df.rename(columns={
+        "name": "Name",
+        "ticker": "Ticker",
+        "last": "Last",
+        "change_1d": "Δ 1D",
+        "change_5d": "Δ 5D",
+        "change_20d": "Δ 20D",
+        "change_ytd": "Δ YTD",
+        "trend": "Trend",
+    })
+
+    return df
+
+def build_rates_interpretation(macro_df: pd.DataFrame) -> list[str]:
+    """
+    Produit une lecture courte du bloc Rates.
+    """
+    if macro_df is None or macro_df.empty:
+        return ["Rates data unavailable."]
+
+    rates = macro_df[
+        (macro_df["asset_class"] == "Rates") &
+        (macro_df["status"] == "ok")
+    ].copy()
+
+    if rates.empty:
+        return ["No exploitable rates data."]
+
+    def get_row(name: str):
+        rows = rates[rates["name"] == name]
+        if rows.empty:
+            return None
+        return rows.iloc[0]
+
+    us10 = get_row("US 10Y Yield")
+    us5 = get_row("US 5Y Yield")
+    spread = get_row("US 10Y-5Y Spread")
+
+    lines = []
+
+    if us10 is not None:
+        chg_5d = pd.to_numeric(us10.get("change_5d"), errors="coerce")
+        if pd.notna(chg_5d):
+            if chg_5d > 0:
+                lines.append(f"US 10Y yield is higher over 5 days by {chg_5d:.3f} points.")
+            elif chg_5d < 0:
+                lines.append(f"US 10Y yield is lower over 5 days by {chg_5d:.3f} points.")
+            else:
+                lines.append("US 10Y yield is broadly unchanged over 5 days.")
+
+    if spread is not None:
+        spread_level = pd.to_numeric(spread.get("last"), errors="coerce")
+        spread_20d = pd.to_numeric(spread.get("change_20d"), errors="coerce")
+
+        if pd.notna(spread_level):
+            lines.append(f"US 10Y-5Y spread currently stands at {spread_level:.3f} points.")
+
+        if pd.notna(spread_20d):
+            if spread_20d > 0:
+                lines.append("The US 10Y-5Y curve has steepened over 20 days.")
+            elif spread_20d < 0:
+                lines.append("The US 10Y-5Y curve has flattened over 20 days.")
+
+    if us10 is not None and us5 is not None:
+        us10_5d = pd.to_numeric(us10.get("change_5d"), errors="coerce")
+        us5_5d = pd.to_numeric(us5.get("change_5d"), errors="coerce")
+
+        if pd.notna(us10_5d) and pd.notna(us5_5d):
+            if us10_5d > us5_5d:
+                lines.append("Long-end rates are rising faster than intermediate rates.")
+            elif us10_5d < us5_5d:
+                lines.append("Intermediate rates are rising faster than long-end rates.")
+
+    if not lines:
+        lines.append("Rates signals are currently mixed.")
+
+    return lines[:4]
+
+def render_rates_monitor(macro_df: pd.DataFrame) -> None:
+    """
+    Monitor spécialisé pour les taux.
+
+    Les taux et spreads sont affichés en variations de niveau,
+    pas uniquement en rendements relatifs.
+    """
+    rates_df = macro_df[macro_df["asset_class"] == "Rates"].copy()
+
+    if rates_df.empty:
+        st.info("No rates data available.")
+        return
+
+    ok_df = rates_df[rates_df["status"] == "ok"].copy()
+
+    total = len(rates_df)
+    ok_count = len(ok_df)
+
+    us10 = ok_df[ok_df["name"] == "US 10Y Yield"]
+    spread = ok_df[ok_df["name"] == "US 10Y-5Y Spread"]
+
+    us10_last = pd.to_numeric(us10["last"], errors="coerce").iloc[0] if not us10.empty else pd.NA
+    us10_5d = pd.to_numeric(us10["change_5d"], errors="coerce").iloc[0] if not us10.empty else pd.NA
+
+    spread_last = pd.to_numeric(spread["last"], errors="coerce").iloc[0] if not spread.empty else pd.NA
+    spread_20d = pd.to_numeric(spread["change_20d"], errors="coerce").iloc[0] if not spread.empty else pd.NA
+
+    k1, k2, k3, k4 = st.columns(4)
+
+    with k1:
+        st.metric("Coverage", f"{ok_count}/{total}")
+
+    with k2:
+        st.metric("US 10Y", format_num_display(us10_last, 3))
+
+    with k3:
+        st.metric("US 10Y Δ5D", format_num_display(us10_5d, 3))
+
+    with k4:
+        st.metric("10Y-5Y Spread", format_num_display(spread_last, 3))
+
+    st.divider()
+
+    col1, col2 = st.columns([1.2, 1])
+
+    with col1:
+        st.markdown("#### Rates & Curve Board")
+        board = prepare_rates_change_board(macro_df)
+
+        if board.empty:
+            st.info("Rates change board unavailable.")
+        else:
+            st.dataframe(
+                board,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    with col2:
+        st.markdown("#### Rates Quick Read")
+        for line in build_rates_interpretation(macro_df):
+            st.markdown(f"- {line}")
+
+    st.markdown("#### Rates Detail Board")
+
+    st.dataframe(
+        prepare_market_board(rates_df),
+        use_container_width=True,
+        hide_index=True,
+    )

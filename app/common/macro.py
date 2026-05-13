@@ -43,6 +43,7 @@ MACRO_UNIVERSE: dict[str, dict[str, str]] = {
         "S&P 500": "^GSPC",
         "Nasdaq": "^IXIC",
         "Dow Jones": "^DJI",
+        "Euro Stoxx 50": "^STOXX50E",
         "CAC 40": "^FCHI",
         "DAX": "^GDAXI",
         "Nikkei 225": "^N225",
@@ -50,9 +51,11 @@ MACRO_UNIVERSE: dict[str, dict[str, str]] = {
     "Rates": {
         "US 10Y Yield": "^TNX",
         "US 5Y Yield": "^FVX",
+        "US 30Y Yield": "^TYX",
         "US 13W Bill": "^IRX",
     },
     "FX": {
+        "DXY": "DX-Y.NYB",
         "EUR/USD": "EURUSD=X",
         "GBP/USD": "GBPUSD=X",
         "USD/JPY": "JPY=X",
@@ -117,6 +120,130 @@ def compute_ytd_return(close: pd.Series) -> float:
     except Exception:
         return np.nan
 
+def compute_ytd_change(series: pd.Series) -> float:
+    """
+    Calcule la variation year-to-date en niveau.
+
+    Exemple :
+    - taux : niveau actuel - premier niveau disponible de l'année
+    - spread : spread actuel - premier spread disponible de l'année
+    """
+    s = pd.to_numeric(series, errors="coerce").dropna()
+
+    if s.empty:
+        return np.nan
+
+    try:
+        last_date = pd.to_datetime(s.index[-1])
+        year_start = pd.Timestamp(year=last_date.year, month=1, day=1)
+
+        ytd_series = s[s.index >= year_start]
+
+        if len(ytd_series) < 2:
+            return np.nan
+
+        return float(ytd_series.iloc[-1] - ytd_series.iloc[0])
+
+    except Exception:
+        return np.nan
+    
+def load_macro_close_series(ticker: str, start_date, end_date) -> pd.Series:
+    """
+    Charge une série de clôture macro propre pour construire des instruments synthétiques.
+    """
+    try:
+        df = load_price_data(ticker, start_date, end_date, interval="1d")
+
+        if df is None or df.empty or "close" not in df.columns:
+            return pd.Series(dtype=float, name=ticker)
+
+        close = pd.to_numeric(df["close"], errors="coerce").dropna()
+        close = close.sort_index()
+        close.name = ticker
+
+        return close
+
+    except Exception:
+        return pd.Series(dtype=float, name=ticker)
+    
+def build_synthetic_level_row(
+    asset_class: str,
+    name: str,
+    ticker: str,
+    series: pd.Series,
+    trend_label: str = "Curve",
+) -> dict[str, Any]:
+    """
+    Construit une ligne macro à partir d'une série de niveau.
+
+    Utilisé pour les spreads de taux ou autres indicateurs synthétiques.
+    Pour ces séries, les rendements relatifs sont peu pertinents.
+    On privilégie les variations de niveau change_*.
+    """
+    s = pd.to_numeric(series, errors="coerce").dropna().sort_index()
+
+    if s.empty:
+        return _empty_macro_row(asset_class, name, ticker, "no_data")
+
+    last_ts = s.index[-1]
+    last_date = getattr(last_ts, "date", lambda: last_ts)()
+
+    if hasattr(last_date, "isoformat"):
+        last_date = last_date.isoformat()
+    else:
+        last_date = str(last_date)
+
+    last = float(s.iloc[-1])
+
+    change_1d = safe_change(s, periods=1)
+    change_5d = safe_change(s, periods=5)
+    change_20d = safe_change(s, periods=20)
+    change_ytd = compute_ytd_change(s)
+
+    sma_50 = float(s.tail(50).mean()) if len(s) >= 50 else np.nan
+    sma_200 = float(s.tail(200).mean()) if len(s) >= 200 else np.nan
+
+    distance_sma_50 = float(last - sma_50) if pd.notna(sma_50) else np.nan
+    distance_sma_200 = float(last - sma_200) if pd.notna(sma_200) else np.nan
+
+    if pd.isna(sma_50) or pd.isna(sma_200):
+        trend = trend_label
+    elif last > sma_50 and last > sma_200:
+        trend = "Steepening"
+    elif last < sma_50 and last < sma_200:
+        trend = "Flattening"
+    else:
+        trend = "Mixed Curve"
+
+    return {
+        "asset_class": asset_class,
+        "name": name,
+        "ticker": ticker,
+        "status": "ok",
+        "date": last_date,
+        "last": last,
+
+        # Relative returns are not used for level spreads.
+        "daily_return": np.nan,
+        "ret_5d": np.nan,
+        "ret_20d": np.nan,
+        "ret_252d": np.nan,
+        "ret_ytd": np.nan,
+
+        # Level changes.
+        "change_1d": change_1d,
+        "change_5d": change_5d,
+        "change_20d": change_20d,
+        "change_ytd": change_ytd,
+
+        "vol_20d_ann": np.nan,
+        "sma_50": sma_50,
+        "sma_200": sma_200,
+        "distance_sma_50": distance_sma_50,
+        "distance_sma_200": distance_sma_200,
+        "trend": trend,
+    }
+
 def safe_return(close: pd.Series, periods: int) -> float:
     """
     Calcule un rendement glissant robuste.
@@ -128,6 +255,22 @@ def safe_return(close: pd.Series, periods: int) -> float:
 
     return float(c.iloc[-1] / c.iloc[-(periods + 1)] - 1.0)
 
+def safe_change(series: pd.Series, periods: int) -> float:
+    """
+    Calcule une variation de niveau robuste.
+
+    Exemple :
+    - taux US 10Y : niveau actuel - niveau il y a 5 jours
+    - spread de taux : spread actuel - spread il y a 20 jours
+
+    Contrairement à safe_return(), cette fonction ne calcule pas un rendement relatif.
+    """
+    s = pd.to_numeric(series, errors="coerce").dropna()
+
+    if len(s) <= periods:
+        return np.nan
+
+    return float(s.iloc[-1] - s.iloc[-(periods + 1)])
 
 def realized_vol_annualized(returns: pd.Series, window: int = 20) -> float:
     """
@@ -282,6 +425,12 @@ def compute_macro_report(start_date, end_date) -> pd.DataFrame:
                 ret_20d = safe_return(close, periods=20)
                 ret_252d = safe_return(close, periods=252)
                 ret_ytd = compute_ytd_return(close)
+
+                change_1d = safe_change(close, periods=1)
+                change_5d = safe_change(close, periods=5)
+                change_20d = safe_change(close, periods=20)
+                change_ytd = compute_ytd_change(close)
+
                 vol_20d_ann = realized_vol_annualized(returns, window=20)
 
                 sma_50 = float(close.tail(50).mean()) if len(close) >= 50 else np.nan
@@ -311,6 +460,10 @@ def compute_macro_report(start_date, end_date) -> pd.DataFrame:
                     "ret_20d": ret_20d,
                     "ret_252d": ret_252d,
                     "ret_ytd": ret_ytd,
+                    "change_1d": change_1d,
+                    "change_5d": change_5d,
+                    "change_20d": change_20d,
+                    "change_ytd": change_ytd,
                     "vol_20d_ann": vol_20d_ann,
                     "sma_50": sma_50,
                     "sma_200": sma_200,
@@ -326,8 +479,125 @@ def compute_macro_report(start_date, end_date) -> pd.DataFrame:
 
     if not macro_df.empty:
         macro_df = macro_df.sort_values(["asset_class", "name"]).reset_index(drop=True)
+        macro_df = add_synthetic_macro_rows(
+            macro_df,
+            start_date=start_date,
+            end_date=end_date,
+        )
 
     return macro_df
+
+def add_synthetic_macro_rows(
+    macro_df: pd.DataFrame,
+    start_date=None,
+    end_date=None,
+) -> pd.DataFrame:
+    """
+    Ajoute des instruments macro synthétiques calculés à partir du macro universe.
+
+    Version actuelle :
+    - US 10Y-5Y Spread avec historique réel si start_date/end_date sont fournis.
+
+    Pour les spreads de taux, les métriques principales sont les variations de niveau :
+    change_1d, change_5d, change_20d, change_ytd.
+    """
+    if macro_df is None or macro_df.empty:
+        return macro_df
+
+    df = macro_df.copy()
+    synthetic_rows: list[dict[str, Any]] = []
+
+    # ------------------------------------------------------------------
+    # US 10Y-5Y Spread — historical version
+    # ------------------------------------------------------------------
+    try:
+        if start_date is not None and end_date is not None:
+            us10_series = load_macro_close_series("^TNX", start_date, end_date)
+            us5_series = load_macro_close_series("^FVX", start_date, end_date)
+
+            if not us10_series.empty and not us5_series.empty:
+                aligned = pd.concat(
+                    [us10_series.rename("us10"), us5_series.rename("us5")],
+                    axis=1,
+                    join="inner",
+                    sort=False,
+                ).dropna()
+
+                if not aligned.empty:
+                    spread_series = aligned["us10"] - aligned["us5"]
+                    spread_series.name = "SYNTH_US10Y_US5Y"
+
+                    synthetic_rows.append(
+                        build_synthetic_level_row(
+                            asset_class="Rates",
+                            name="US 10Y-5Y Spread",
+                            ticker="SYNTH_US10Y_US5Y",
+                            series=spread_series,
+                            trend_label="Curve",
+                        )
+                    )
+
+    except Exception:
+        pass
+
+    # ------------------------------------------------------------------
+    # Fallback — last-level only if historical calculation failed
+    # ------------------------------------------------------------------
+    if not synthetic_rows:
+        try:
+            us10 = df[(df["name"] == "US 10Y Yield") & (df["status"] == "ok")]
+            us5 = df[(df["name"] == "US 5Y Yield") & (df["status"] == "ok")]
+
+            if not us10.empty and not us5.empty:
+                row10 = us10.iloc[0]
+                row5 = us5.iloc[0]
+
+                last_10 = safe_float(row10.get("last"))
+                last_5 = safe_float(row5.get("last"))
+
+                if pd.notna(last_10) and pd.notna(last_5):
+                    spread_last = last_10 - last_5
+
+                    synthetic_rows.append({
+                        "asset_class": "Rates",
+                        "name": "US 10Y-5Y Spread",
+                        "ticker": "SYNTH_US10Y_US5Y",
+                        "status": "ok",
+                        "date": row10.get("date", ""),
+                        "last": spread_last,
+
+                        "daily_return": np.nan,
+                        "ret_5d": np.nan,
+                        "ret_20d": np.nan,
+                        "ret_252d": np.nan,
+                        "ret_ytd": np.nan,
+
+                        "change_1d": np.nan,
+                        "change_5d": np.nan,
+                        "change_20d": np.nan,
+                        "change_ytd": np.nan,
+
+                        "vol_20d_ann": np.nan,
+                        "sma_50": np.nan,
+                        "sma_200": np.nan,
+                        "distance_sma_50": np.nan,
+                        "distance_sma_200": np.nan,
+                        "trend": "Curve",
+                    })
+
+        except Exception:
+            pass
+
+    if synthetic_rows:
+        df = pd.concat(
+            [df, pd.DataFrame(synthetic_rows)],
+            ignore_index=True,
+            sort=False,
+        )
+
+    df = df.sort_values(["asset_class", "name"]).reset_index(drop=True)
+
+    return df
 
 
 def _empty_macro_row(asset_class: str, name: str, ticker: str, status: str) -> dict[str, Any]:
@@ -346,6 +616,10 @@ def _empty_macro_row(asset_class: str, name: str, ticker: str, status: str) -> d
         "ret_20d": np.nan,
         "ret_252d": np.nan,
         "ret_ytd": np.nan,
+        "change_1d": np.nan,
+        "change_5d": np.nan,
+        "change_20d": np.nan,
+        "change_ytd": np.nan,
         "vol_20d_ann": np.nan,
         "sma_50": np.nan,
         "sma_200": np.nan,
