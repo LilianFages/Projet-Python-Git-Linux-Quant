@@ -33,6 +33,7 @@ def find_repo_root() -> Path:
 
 REPO_ROOT = find_repo_root()
 MACRO_CONTEXT_PATH = REPO_ROOT / "reports" / "data" / "macro_context.json"
+MACRO_NEWS_PATH = REPO_ROOT / "reports" / "data" / "macro_news.json"
 
 
 # ------------------------------------------------------------
@@ -1081,6 +1082,87 @@ def load_macro_context(path: str | Path | None = None) -> list[dict[str, Any]]:
 
     except Exception:
         return []
+    
+def load_macro_news(path: str | Path | None = None) -> list[dict[str, Any]]:
+    """
+    Charge les news macro semi-automatiques depuis reports/data/macro_news.json.
+
+    Ne casse jamais l'application :
+    - fichier absent -> []
+    - JSON invalide -> []
+    - mauvais format -> []
+    """
+    news_path = Path(path) if path is not None else MACRO_NEWS_PATH
+
+    try:
+        if not news_path.exists():
+            return []
+
+        with open(news_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if not isinstance(data, list):
+            return []
+
+        return [item for item in data if isinstance(item, dict)]
+
+    except Exception:
+        return []
+
+
+def filter_recent_macro_news(
+    news: list[dict[str, Any]],
+    reference_date: datetime,
+    days: int = 3,
+) -> list[dict[str, Any]]:
+    """
+    Filtre les news macro récentes.
+
+    Format attendu :
+    {
+      "date": "2026-05-13",
+      "category": "Central Banks",
+      "importance": "High",
+      "title": "...",
+      "summary": "...",
+      "source": "manual/news/api",
+      "url": "",
+      "tickers": [],
+      "tags": []
+    }
+    """
+    if not news:
+        return []
+
+    try:
+        ref_date = pd.to_datetime(reference_date).date()
+    except Exception:
+        ref_date = datetime.now().date()
+
+    cutoff = ref_date - timedelta(days=days)
+
+    filtered: list[dict[str, Any]] = []
+
+    for item in news:
+        try:
+            item_date = pd.to_datetime(item.get("date")).date()
+
+            if cutoff <= item_date <= ref_date:
+                filtered.append(item)
+
+        except Exception:
+            continue
+
+    filtered = sorted(
+        filtered,
+        key=lambda e: (
+            pd.to_datetime(e.get("date", "1900-01-01")),
+            -importance_rank(e.get("importance", "Low")),
+        ),
+        reverse=True,
+    )
+
+    return filtered
 
 
 def filter_recent_macro_context(

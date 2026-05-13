@@ -15,6 +15,8 @@ from app.common.macro import (
     load_macro_context,
     filter_recent_macro_context,
     build_macro_context_summary,
+    load_macro_news,
+    filter_recent_macro_news,
     macro_pct,
     macro_num,
 )
@@ -44,12 +46,20 @@ def load_macro_dashboard_data_cached(
     )
     macro_context_summary = build_macro_context_summary(macro_events_recent)
 
+    macro_news_all = load_macro_news()
+    macro_news_recent = filter_recent_macro_news(
+        news=macro_news_all,
+        reference_date=datetime.now(),
+        days=int(context_days),
+    )
+
     return {
         "macro_df": macro_df,
         "macro_regime": macro_regime,
         "macro_narrative": macro_narrative,
         "macro_events_recent": macro_events_recent,
         "macro_context_summary": macro_context_summary,
+        "macro_news_recent": macro_news_recent,
         "loaded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "refresh_key": refresh_key,
     }
@@ -143,9 +153,15 @@ def render():
     macro_events_recent = macro_data["macro_events_recent"]
     macro_context_summary = macro_data["macro_context_summary"]
     loaded_at = macro_data["loaded_at"]
+    macro_news_recent = macro_data["macro_news_recent"]
 
     macro_events_dashboard = filter_macro_events_for_dashboard(
         events=macro_events_recent,
+        importance_filter=event_importance_filter,
+        category_filter=event_category_filter,
+    )
+    macro_news_dashboard = filter_macro_events_for_dashboard(
+        events=macro_news_recent,
         importance_filter=event_importance_filter,
         category_filter=event_category_filter,
     )
@@ -286,6 +302,7 @@ def render():
     st.subheader("5. Macro Events Center")
     render_macro_events_center(
         events=macro_events_dashboard,
+        news=macro_news_dashboard,
         macro_regime=macro_regime,
     )
 
@@ -1716,43 +1733,98 @@ def build_event_impact_summary(
 
 def render_macro_events_center(
     events: list[dict[str, Any]],
+    news: list[dict[str, Any]],
     macro_regime: dict[str, Any],
 ) -> None:
     """
-    Affiche le Macro Events Center.
+    Affiche le Macro Events Center avec deux flux :
+    - Validated Context : événements manuels validés
+    - Live / Semi-Auto News : futures news semi-automatiques
     """
+    total_items = len(events) + len(news)
 
-    if not events:
-        st.info("No macro events match the current filters.")
+    if total_items == 0:
+        st.info("No macro events or macro news match the current filters.")
         return
 
-    impact_lines = build_event_impact_summary(events, macro_regime)
+    tab_context, tab_news, tab_impact = st.tabs(
+        ["Validated Context", "Live / Semi-Auto News", "Event Impact"]
+    )
 
-    left, right = st.columns([1.15, 1])
+    with tab_context:
+        if not events:
+            st.info("No validated context event matches the current filters.")
+        else:
+            left, right = st.columns([1.15, 1])
 
-    with left:
-        st.markdown("#### Recent Events")
+            with left:
+                st.markdown("#### Recent Validated Events")
+                for event in events:
+                    render_event_card(event)
 
-        for event in events:
-            render_event_card(event)
+            with right:
+                st.markdown("#### Validated Event Table")
+                event_df = pd.DataFrame(events)
 
-    with right:
+                display_cols = ["date", "category", "importance", "title", "source"]
+                for col in display_cols:
+                    if col not in event_df.columns:
+                        event_df[col] = ""
+
+                st.dataframe(
+                    event_df[display_cols],
+                    use_container_width=True,
+                    hide_index=True,
+                    height=300,
+                )
+
+    with tab_news:
+        if not news:
+            st.info("No live or semi-auto macro news available yet.")
+            st.caption("The data layer is ready: reports/data/macro_news.json")
+        else:
+            left, right = st.columns([1.15, 1])
+
+            with left:
+                st.markdown("#### Recent Macro News")
+                for item in news:
+                    render_event_card(item)
+
+            with right:
+                st.markdown("#### News Table")
+                news_df = pd.DataFrame(news)
+
+                display_cols = ["date", "category", "importance", "title", "source"]
+                for col in display_cols:
+                    if col not in news_df.columns:
+                        news_df[col] = ""
+
+                st.dataframe(
+                    news_df[display_cols],
+                    use_container_width=True,
+                    hide_index=True,
+                    height=300,
+                )
+
+    with tab_impact:
+        combined = events + news
+
         st.markdown("#### Event Impact")
-        for line in impact_lines:
+        for line in build_event_impact_summary(combined, macro_regime):
             st.markdown(f"- {line}")
 
-        event_df = pd.DataFrame(events)
+        if combined:
+            combined_df = pd.DataFrame(combined)
 
-        if not event_df.empty:
-            st.markdown("#### Event Table")
             display_cols = ["date", "category", "importance", "title", "source"]
             for col in display_cols:
-                if col not in event_df.columns:
-                    event_df[col] = ""
+                if col not in combined_df.columns:
+                    combined_df[col] = ""
 
+            st.markdown("#### Combined Event Table")
             st.dataframe(
-                event_df[display_cols],
+                combined_df[display_cols],
                 use_container_width=True,
                 hide_index=True,
-                height=260,
+                height=300,
             )
