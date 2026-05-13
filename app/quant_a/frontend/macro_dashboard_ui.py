@@ -56,9 +56,8 @@ def load_macro_dashboard_data_cached(
 def render():
     st.title("Macro Dashboard")
     st.caption(
-        "Cross-asset cockpit — market regime, macro pressure, top movers and asset-class pulse."
+        "Cross-asset cockpit · cached 15 min · refresh available in sidebar"
     )
-    st.caption("Data are cached for 15 minutes. Use the sidebar button to force a refresh.")
 
     # ---------------------------------------------------------------------
     # Sidebar controls
@@ -117,10 +116,10 @@ def render():
     macro_events_recent = macro_data["macro_events_recent"]
     macro_context_summary = macro_data["macro_context_summary"]
     loaded_at = macro_data["loaded_at"]
+
     if macro_df is None or macro_df.empty:
         st.error("Macro data unavailable.")
         return
-    st.caption(f"Last macro data refresh: {loaded_at} · Lookback: {lookback_days} days")
 
     # ---------------------------------------------------------------------
     # Derived objects
@@ -135,52 +134,43 @@ def render():
     top_movers = build_top_movers(macro_df)
     heatmap_df = prepare_heatmap_data(macro_df)
 
+    key_takeaways = build_key_takeaways(
+        macro_regime=macro_regime,
+        market_pulse=market_pulse,
+    )
+
     ok_count = int((macro_df["status"] == "ok").sum()) if "status" in macro_df.columns else 0
     total_count = len(macro_df)
 
+    st.caption(f"Last refresh: {loaded_at} · Lookback: {lookback_days}d")
+
     # ---------------------------------------------------------------------
-    # 1. Top bar — Macro Regime Center
+    # 1. Key Takeaways
     # ---------------------------------------------------------------------
-    st.subheader("1. Macro Regime Center")
+    render_key_takeaways(key_takeaways)
 
-    top_col1, top_col2, top_col3, top_col4 = st.columns([1.4, 1, 1, 1])
+    with st.expander("Regime details"):
+        st.markdown(f"**Regime:** {regime}")
+        st.markdown(f"**Score:** {score}")
+        st.markdown(f"**Flags:** {', '.join(flags) if flags else 'None'}")
+        st.markdown(f"**Data coverage:** {ok_count}/{total_count}")
 
-    with top_col1:
-        st.markdown(get_regime_badge(regime), unsafe_allow_html=True)
+        if drivers:
+            st.markdown("**Drivers**")
+            for driver in drivers:
+                st.markdown(f"- {driver}")
 
-    with top_col2:
-        render_compact_card(
-            title="Regime Score",
-            value=str(score),
-            subtitle="Risk-On if ≥ 2 · Risk-Off if ≤ -2",
-        )
-
-    with top_col3:
-        render_compact_card(
-            title="Macro Flags",
-            value=str(len(flags)),
-            subtitle=", ".join(flags) if flags else "No active flag",
-        )
-
-    with top_col4:
-        render_compact_card(
-            title="Data Coverage",
-            value=f"{ok_count}/{total_count}",
-            subtitle="macro instruments available",
-        )
-
-    if alerts:
-        st.markdown("#### Macro Alerts")
-        alert_cols = st.columns(min(3, len(alerts)))
-
-        for i, alert in enumerate(alerts[:3]):
-            with alert_cols[i % len(alert_cols)]:
+        if alerts:
+            st.markdown("**Alerts**")
+            for alert in alerts:
                 st.warning(alert)
+
+    st.divider()
 
     # ---------------------------------------------------------------------
     # 2. Market Pulse — compact asset-class diagnostics
     # ---------------------------------------------------------------------
-    st.subheader("2. Market Pulse")
+    st.subheader("1. Market Pulse")
 
     if market_pulse.empty:
         st.info("Market pulse unavailable.")
@@ -194,7 +184,7 @@ def render():
     # ---------------------------------------------------------------------
     # 3. Cross-Asset Heatmap
     # ---------------------------------------------------------------------
-    st.subheader("3. Cross-Asset Heatmap")
+    st.subheader("2. Cross-Asset Heatmap")
 
     st.caption(
         "Performance and trend-distance heatmap. Values are shown in percentage points."
@@ -213,7 +203,7 @@ def render():
     # ---------------------------------------------------------------------
     # 4. Top Movers
     # ---------------------------------------------------------------------
-    st.subheader("4. Top Movers")
+    st.subheader("3. Top Movers")
 
     tm_col1, tm_col2 = st.columns(2)
 
@@ -231,7 +221,7 @@ def render():
     # ---------------------------------------------------------------------
     # 5. Compact Narrative
     # ---------------------------------------------------------------------
-    st.subheader("5. Market Narrative")
+    st.subheader("4. Market Narrative")
 
     narrative_col1, narrative_col2 = st.columns([1.2, 1])
 
@@ -257,7 +247,7 @@ def render():
     # ---------------------------------------------------------------------
     # 6. Asset Class Monitors
     # ---------------------------------------------------------------------
-    st.subheader("6. Asset Class Monitors")
+    st.subheader("5. Asset Class Monitors")
 
     tabs = st.tabs(["Equity", "Rates", "FX", "Commodities", "Crypto"])
 
@@ -271,7 +261,7 @@ def render():
     # 7. Raw data
     # ---------------------------------------------------------------------
     if show_raw_table:
-        st.subheader("7. Raw Macro Data")
+        st.subheader("6. Raw Macro Data")
 
         st.dataframe(
             macro_df,
@@ -539,8 +529,7 @@ def get_regime_badge(regime: str) -> str:
 def render_compact_card(title: str, value: str, subtitle: str = "") -> None:
     """
     Carte HTML compacte pour KPI dashboard.
-    Version lisible : meilleur contraste, taille de police plus grande,
-    hauteur adaptée et retour à la ligne propre.
+    Version stabilisée : hauteur fixe, texte lisible, pas de débordement.
     """
     st.markdown(
         f"""
@@ -548,37 +537,49 @@ def render_compact_card(title: str, value: str, subtitle: str = "") -> None:
             background:#ffffff;
             border:1px solid #d1d5db;
             border-radius:16px;
-            padding:18px 20px;
+            padding:16px 18px;
             box-shadow:0 1px 3px rgba(0,0,0,0.08);
-            min-height:130px;
-            overflow-wrap:break-word;
-            word-break:normal;
+            height:150px;
+            max-height:150px;
+            overflow:hidden;
+            display:flex;
+            flex-direction:column;
+            justify-content:flex-start;
         ">
             <div style="
                 color:#374151;
-                font-size:13px;
-                font-weight:700;
+                font-size:12px;
+                font-weight:800;
                 text-transform:uppercase;
                 letter-spacing:0.06em;
                 margin-bottom:10px;
+                white-space:nowrap;
+                overflow:hidden;
+                text-overflow:ellipsis;
             ">
                 {title}
             </div>
             <div style="
                 color:#0f172a;
-                font-size:30px;
+                font-size:28px;
                 font-weight:900;
-                line-height:1.15;
+                line-height:1.10;
                 margin-bottom:10px;
+                white-space:nowrap;
+                overflow:hidden;
+                text-overflow:ellipsis;
             ">
                 {value}
             </div>
             <div style="
                 color:#111827;
-                font-size:14px;
+                font-size:13px;
                 font-weight:500;
-                line-height:1.35;
-                white-space:normal;
+                line-height:1.30;
+                overflow:hidden;
+                display:-webkit-box;
+                -webkit-line-clamp:2;
+                -webkit-box-orient:vertical;
             ">
                 {subtitle}
             </div>
@@ -932,3 +933,191 @@ def render_trend_distribution(df: pd.DataFrame) -> None:
     )
 
     st.altair_chart(chart, use_container_width=True)
+
+# ---------------------------------------------------------------------
+# Key Takeaways helpers — Macro Dashboard V2.2
+# ---------------------------------------------------------------------
+def infer_main_risk_factor(macro_regime: dict[str, Any]) -> tuple[str, str]:
+    """
+    Déduit le principal facteur de risque à partir des flags et alerts macro.
+    Retourne :
+    - risk label
+    - description courte
+    """
+    if not macro_regime:
+        return "Unknown", "Macro regime unavailable."
+
+    flags = macro_regime.get("flags", [])
+    alerts = macro_regime.get("alerts", [])
+
+    if "Rates Pressure" in flags:
+        return (
+            "Rates Pressure",
+            "Rising yields may pressure duration-sensitive and growth assets.",
+        )
+
+    if "Dollar Strength" in flags:
+        return (
+            "Dollar Strength",
+            "A stronger dollar can weigh on global risk assets, commodities and foreign earnings.",
+        )
+
+    if "Inflation Pressure" in flags:
+        return (
+            "Inflation Pressure",
+            "Energy or commodity strength may keep inflation expectations under pressure.",
+        )
+
+    if "High Volatility" in flags:
+        return (
+            "High Volatility",
+            "Elevated realized volatility requires tighter risk monitoring.",
+        )
+
+    if "Growth Slowdown" in flags:
+        return (
+            "Growth Slowdown",
+            "Weak equity momentum may reflect softer growth expectations.",
+        )
+
+    if alerts:
+        return (
+            "Macro Alert",
+            str(alerts[0]),
+        )
+
+    return (
+        "No major risk flag",
+        "No dominant macro risk factor is currently detected by the regime engine.",
+    )
+
+
+def infer_asset_class_leadership(market_pulse: pd.DataFrame) -> tuple[dict[str, Any], dict[str, Any]]:
+    """
+    Identifie la classe d'actifs la plus forte et la plus faible à partir du Market Pulse.
+
+    On utilise Avg 5D en priorité, en parsant les strings déjà formatées.
+    """
+    if market_pulse is None or market_pulse.empty or "Avg 5D" not in market_pulse.columns:
+        empty = {
+            "asset_class": "N/A",
+            "avg_5d": "—",
+            "pulse": "No Data",
+        }
+        return empty, empty
+
+    df = market_pulse.copy()
+
+    def parse_pct_string(x: Any) -> float:
+        try:
+            s = str(x).replace("%", "").replace("+", "").strip()
+            if s in {"", "—", "nan", "None"}:
+                return np.nan
+            return float(s)
+        except Exception:
+            return np.nan
+
+    df["_avg_5d_num"] = df["Avg 5D"].apply(parse_pct_string)
+    df = df.dropna(subset=["_avg_5d_num"])
+
+    if df.empty:
+        empty = {
+            "asset_class": "N/A",
+            "avg_5d": "—",
+            "pulse": "No Data",
+        }
+        return empty, empty
+
+    strongest_row = df.sort_values("_avg_5d_num", ascending=False).iloc[0]
+    weakest_row = df.sort_values("_avg_5d_num", ascending=True).iloc[0]
+
+    strongest = {
+        "asset_class": strongest_row.get("Asset Class", "N/A"),
+        "avg_5d": strongest_row.get("Avg 5D", "—"),
+        "pulse": strongest_row.get("Pulse", "N/A"),
+    }
+
+    weakest = {
+        "asset_class": weakest_row.get("Asset Class", "N/A"),
+        "avg_5d": weakest_row.get("Avg 5D", "—"),
+        "pulse": weakest_row.get("Pulse", "N/A"),
+    }
+
+    return strongest, weakest
+
+
+def build_key_takeaways(
+    macro_regime: dict[str, Any],
+    market_pulse: pd.DataFrame,
+) -> dict[str, Any]:
+    """
+    Construit les 4 takeaways principaux du Macro Dashboard.
+    """
+    regime = macro_regime.get("regime", "N/A") if macro_regime else "N/A"
+    score = macro_regime.get("score", "N/A") if macro_regime else "N/A"
+    flags = macro_regime.get("flags", []) if macro_regime else []
+
+    risk_label, risk_description = infer_main_risk_factor(macro_regime)
+    strongest, weakest = infer_asset_class_leadership(market_pulse)
+
+    return {
+        "regime": regime,
+        "score": score,
+        "flags": flags,
+        "main_risk": risk_label,
+        "main_risk_description": risk_description,
+        "strongest_asset_class": strongest,
+        "weakest_asset_class": weakest,
+    }
+
+
+def render_key_takeaways(takeaways: dict[str, Any]) -> None:
+    """
+    Affiche un bloc décisionnel synthétique en haut du Macro Dashboard.
+    """
+    if not takeaways:
+        st.info("Key takeaways unavailable.")
+        return
+
+    st.subheader("Key Takeaways")
+
+    regime = takeaways.get("regime", "N/A")
+    score = takeaways.get("score", "N/A")
+    flags = takeaways.get("flags", [])
+
+    main_risk = takeaways.get("main_risk", "N/A")
+    main_risk_description = takeaways.get("main_risk_description", "")
+
+    strongest = takeaways.get("strongest_asset_class", {})
+    weakest = takeaways.get("weakest_asset_class", {})
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    with c1:
+        render_compact_card(
+            title="Market Regime",
+            value=str(regime),
+            subtitle=f"Score: {score} · Flags: {len(flags)}",
+        )
+
+    with c2:
+        render_compact_card(
+            title="Main Risk Factor",
+            value=str(main_risk),
+            subtitle=str(main_risk_description),
+        )
+
+    with c3:
+        render_compact_card(
+            title="Strongest Asset Class",
+            value=str(strongest.get("asset_class", "N/A")),
+            subtitle=f"Avg 5D: {strongest.get('avg_5d', '—')} · Pulse: {strongest.get('pulse', 'N/A')}",
+        )
+
+    with c4:
+        render_compact_card(
+            title="Weakest Asset Class",
+            value=str(weakest.get("asset_class", "N/A")),
+            subtitle=f"Avg 5D: {weakest.get('avg_5d', '—')} · Pulse: {weakest.get('pulse', 'N/A')}",
+        )
+    st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
