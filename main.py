@@ -5,6 +5,7 @@ from app.quant_a.frontend import ui as quant_a_ui
 from app.quant_a.frontend import strategy_ui as quant_a_strategy_ui
 from app.quant_b.frontend import ui as quant_b_ui
 from reports.frontend import ui as reports_ui  
+from app.quant_a.frontend import macro_dashboard_ui
 
 # Refresh automatique toutes les 5 minutes (300000 ms)
 st_autorefresh(interval=5 * 60 * 1000, key="auto_refresh_5min")
@@ -25,6 +26,7 @@ page = st.sidebar.radio(
     [
         "Quant A - Analyse Marché",
         "Quant A - Stratégies & Backtest",
+        "Macro Dashboard",
         "Quant B - Portfolio",
         "Rapports",  # <-- NEW
     ],
@@ -35,6 +37,9 @@ if page == "Quant A - Analyse Marché":
 
 elif page == "Quant A - Stratégies & Backtest":
     quant_a_strategy_ui.render()
+
+elif page == "Macro Dashboard":
+    macro_dashboard_ui.render()
 
 elif page == "Quant B - Portfolio":
     quant_b_ui.render()
