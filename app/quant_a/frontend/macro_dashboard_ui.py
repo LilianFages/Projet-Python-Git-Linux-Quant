@@ -18,12 +18,47 @@ from app.common.macro import (
     macro_num,
 )
 
+@st.cache_data(ttl=900, show_spinner=False)
+def load_macro_dashboard_data_cached(
+    start_date,
+    end_date,
+    context_days: int,
+    refresh_key: int = 0,
+) -> dict[str, Any]:
+    """
+    Charge les données du Macro Dashboard avec cache Streamlit.
+
+    ttl=900 : cache de 15 minutes.
+    refresh_key permet de forcer le refresh depuis un bouton.
+    """
+    macro_df = compute_macro_report(start_date=start_date, end_date=end_date)
+    macro_regime = compute_macro_regime(macro_df)
+    macro_narrative = build_macro_narrative(macro_regime, macro_df)
+
+    macro_events_all = load_macro_context()
+    macro_events_recent = filter_recent_macro_context(
+        events=macro_events_all,
+        reference_date=datetime.now(),
+        days=int(context_days),
+    )
+    macro_context_summary = build_macro_context_summary(macro_events_recent)
+
+    return {
+        "macro_df": macro_df,
+        "macro_regime": macro_regime,
+        "macro_narrative": macro_narrative,
+        "macro_events_recent": macro_events_recent,
+        "macro_context_summary": macro_context_summary,
+        "loaded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "refresh_key": refresh_key,
+    }
 
 def render():
     st.title("Macro Dashboard")
     st.caption(
         "Cross-asset cockpit — market regime, macro pressure, top movers and asset-class pulse."
     )
+    st.caption("Data are cached for 15 minutes. Use the sidebar button to force a refresh.")
 
     # ---------------------------------------------------------------------
     # Sidebar controls
@@ -50,6 +85,18 @@ def render():
             value=False,
         )
 
+        st.divider()
+
+        if "macro_refresh_key" not in st.session_state:
+            st.session_state["macro_refresh_key"] = 0
+
+        if st.button("Refresh macro data", use_container_width=True):
+            st.session_state["macro_refresh_key"] += 1
+            st.cache_data.clear()
+            st.rerun()
+
+        st.caption("Cache TTL: 15 minutes")
+
     end_date = datetime.now().date()
     start_date = end_date - timedelta(days=int(lookback_days))
 
@@ -57,21 +104,23 @@ def render():
     # Data loading
     # ---------------------------------------------------------------------
     with st.spinner("Loading macro universe..."):
-        macro_df = compute_macro_report(start_date=start_date, end_date=end_date)
-        macro_regime = compute_macro_regime(macro_df)
-        macro_narrative = build_macro_narrative(macro_regime, macro_df)
-
-        macro_events_all = load_macro_context()
-        macro_events_recent = filter_recent_macro_context(
-            events=macro_events_all,
-            reference_date=datetime.now(),
-            days=int(context_days),
+        macro_data = load_macro_dashboard_data_cached(
+            start_date=start_date,
+            end_date=end_date,
+            context_days=int(context_days),
+            refresh_key=st.session_state.get("macro_refresh_key", 0),
         )
-        macro_context_summary = build_macro_context_summary(macro_events_recent)
 
+    macro_df = macro_data["macro_df"]
+    macro_regime = macro_data["macro_regime"]
+    macro_narrative = macro_data["macro_narrative"]
+    macro_events_recent = macro_data["macro_events_recent"]
+    macro_context_summary = macro_data["macro_context_summary"]
+    loaded_at = macro_data["loaded_at"]
     if macro_df is None or macro_df.empty:
         st.error("Macro data unavailable.")
         return
+    st.caption(f"Last macro data refresh: {loaded_at} · Lookback: {lookback_days} days")
 
     # ---------------------------------------------------------------------
     # Derived objects
