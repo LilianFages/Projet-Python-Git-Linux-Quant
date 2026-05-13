@@ -1558,6 +1558,139 @@ def build_summary(
 
     return lines
 
+# ------------------------------------------------------------
+# Markdown rendering — Sprint 2 Macro
+# ------------------------------------------------------------
+def render_macro_regime_markdown(macro_regime: dict[str, Any]) -> str:
+    """
+    Rend la section Macro Regime en Markdown.
+    """
+    if not macro_regime:
+        return "\n## Macro Regime\n\nMacro data unavailable.\n"
+
+    regime = macro_regime.get("regime", "N/A")
+    score = macro_regime.get("score", "N/A")
+    flags = macro_regime.get("flags", [])
+    drivers = macro_regime.get("drivers", [])
+    alerts = macro_regime.get("alerts", [])
+
+    flags_text = ", ".join(flags) if flags else "None"
+
+    md = "\n## Macro Regime\n\n"
+    md += f"- **Regime**: {regime}\n"
+    md += f"- **Score**: {score}\n"
+    md += f"- **Flags**: {flags_text}\n"
+    md += f"- **Number of macro alerts**: {len(alerts)}\n\n"
+
+    md += "### Macro Drivers\n\n"
+    if drivers:
+        for driver in drivers:
+            md += f"- {driver}\n"
+    else:
+        md += "- No macro driver available.\n"
+
+    if alerts:
+        md += "\n### Macro Alerts\n\n"
+        for alert in alerts:
+            md += f"- {alert}\n"
+
+    return md
+
+
+def render_sentence_section_markdown(title: str, sentences: list[str]) -> str:
+    """
+    Rend une section Markdown composée d'une liste de phrases.
+    """
+    md = f"\n## {title}\n\n"
+
+    if not sentences:
+        md += "- No data available.\n"
+        return md
+
+    for sentence in sentences:
+        md += f"- {sentence}\n"
+
+    return md
+
+
+def render_macro_context_markdown(
+    events: list[dict[str, Any]],
+    summary_sentences: list[str],
+) -> str:
+    """
+    Rend le contexte macro manuel en Markdown.
+    """
+    md = "\n## Macro Context — Recent Events\n\n"
+
+    if not events:
+        for sentence in summary_sentences:
+            md += f"- {sentence}\n"
+        return md
+
+    md += "| Date | Category | Importance | Title | Summary | Source |\n"
+    md += "|---|---|---|---|---|---|\n"
+
+    for event in events:
+        md += (
+            f"| {event.get('date', '')} "
+            f"| {event.get('category', '')} "
+            f"| {event.get('importance', '')} "
+            f"| {event.get('title', '')} "
+            f"| {event.get('summary', '')} "
+            f"| {event.get('source', '')} |\n"
+        )
+
+    return md
+
+
+def render_cross_asset_overview_markdown(macro_df: pd.DataFrame) -> str:
+    """
+    Rend la table Cross-Asset Overview en Markdown.
+    """
+    md = "\n## Cross-Asset Overview\n\n"
+
+    if macro_df is None or macro_df.empty:
+        md += "Macro data unavailable.\n"
+        return md
+
+    display_cols = [
+        "asset_class",
+        "name",
+        "ticker",
+        "status",
+        "last",
+        "daily_return",
+        "ret_5d",
+        "ret_20d",
+        "vol_20d_ann",
+        "distance_sma_50",
+        "distance_sma_200",
+        "trend",
+    ]
+
+    df = macro_df.copy()
+
+    for col in display_cols:
+        if col not in df.columns:
+            df[col] = np.nan
+
+    df = df[display_cols].copy()
+
+    df["last"] = df["last"].apply(lambda x: macro_num(x, 2))
+    df["daily_return"] = df["daily_return"].apply(lambda x: macro_pct(x, 2))
+    df["ret_5d"] = df["ret_5d"].apply(lambda x: macro_pct(x, 2))
+    df["ret_20d"] = df["ret_20d"].apply(lambda x: macro_pct(x, 2))
+    df["vol_20d_ann"] = df["vol_20d_ann"].apply(lambda x: macro_pct(x, 2))
+    df["distance_sma_50"] = df["distance_sma_50"].apply(lambda x: macro_pct(x, 2))
+    df["distance_sma_200"] = df["distance_sma_200"].apply(lambda x: macro_pct(x, 2))
+
+    try:
+        md += df.to_markdown(index=False)
+    except Exception:
+        md += df.to_string(index=False)
+
+    md += "\n"
+    return md
 
 # ------------------------------------------------------------
 # HTML rendering
@@ -2353,7 +2486,28 @@ def main():
         for alert in risk_alerts:
             f.write(f"- {alert}\n")
 
+        # Sprint 2 — Macro sections
+        f.write(render_macro_regime_markdown(macro_regime))
+
+        f.write(render_sentence_section_markdown(
+            "Daily Market Narrative",
+            macro_narrative,
+        ))
+
+        f.write(render_macro_context_markdown(
+            macro_events_recent,
+            macro_context_summary,
+        ))
+
+        f.write(render_sentence_section_markdown(
+            "Portfolio Interpretation in Macro Context",
+            portfolio_macro_interpretation,
+        ))
+
+        f.write(render_cross_asset_overview_markdown(macro_df))
+
         f.write("\n## Summary Metadata\n\n")
+        
         for ln in summary_lines:
             f.write(f"{ln}\n")
 
