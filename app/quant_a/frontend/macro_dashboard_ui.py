@@ -80,6 +80,32 @@ def render():
             help="Number of recent days loaded from reports/data/macro_context.json.",
         )
 
+        st.markdown("#### Macro Events Filters")
+
+        event_importance_filter = st.multiselect(
+            "Importance",
+            options=["High", "Medium", "Low"],
+            default=["High", "Medium", "Low"],
+        )
+
+        event_category_filter = st.multiselect(
+            "Categories",
+            options=[
+                "Rates",
+                "Inflation",
+                "Central Banks",
+                "Equity",
+                "FX",
+                "Commodities",
+                "Crypto",
+                "Geopolitics",
+                "Earnings",
+                "Macro",
+            ],
+            default=[],
+            help="Leave empty to include all categories.",
+        )
+
         show_raw_table = st.checkbox(
             "Show raw macro table",
             value=False,
@@ -117,6 +143,12 @@ def render():
     macro_events_recent = macro_data["macro_events_recent"]
     macro_context_summary = macro_data["macro_context_summary"]
     loaded_at = macro_data["loaded_at"]
+
+    macro_events_dashboard = filter_macro_events_for_dashboard(
+        events=macro_events_recent,
+        importance_filter=event_importance_filter,
+        category_filter=event_category_filter,
+    )
 
     if macro_df is None or macro_df.empty:
         st.error("Macro data unavailable.")
@@ -238,19 +270,29 @@ def render():
                 st.markdown(f"- {driver}")
 
     with narrative_col2:
-        st.markdown("#### Manual macro context")
-        for sentence in compact_narrative(macro_context_summary, max_items=4):
-            st.markdown(f"- {sentence}")
+        st.markdown("#### Event Snapshot")
+        if macro_events_dashboard:
+            for sentence in compact_narrative(
+                build_event_impact_summary(macro_events_dashboard, macro_regime),
+                max_items=4,
+            ):
+                st.markdown(f"- {sentence}")
+        else:
+            st.info("No macro events match the current filters.")
 
-        if len(macro_context_summary) > 4:
-            with st.expander("Show all manual context"):
-                for sentence in macro_context_summary:
-                    st.markdown(f"- {sentence}")
+    # ---------------------------------------------------------------------
+    # 5. Macro Events Center
+    # ---------------------------------------------------------------------
+    st.subheader("5. Macro Events Center")
+    render_macro_events_center(
+        events=macro_events_dashboard,
+        macro_regime=macro_regime,
+    )
 
     # ---------------------------------------------------------------------
     # 6. Asset Class Monitors
     # ---------------------------------------------------------------------
-    st.subheader("5. Asset Class Monitors")
+    st.subheader("6. Asset Class Monitors")
 
     tabs = st.tabs(["Equity", "Rates", "FX", "Commodities", "Crypto"])
 
@@ -264,7 +306,7 @@ def render():
     # 7. Raw data
     # ---------------------------------------------------------------------
     if show_raw_table:
-        st.subheader("6. Raw Macro Data")
+        st.subheader("7. Raw Macro Data")
 
         st.dataframe(
             macro_df,
@@ -1543,3 +1585,174 @@ def render_macro_factor_scores(macro_regime: dict[str, Any]) -> None:
             st.markdown("**Risk Appetite**")
             for item in details.get("risk_appetite", []):
                 st.markdown(f"- {item}")
+
+# ---------------------------------------------------------------------
+# Macro Events Center helpers — Macro Dashboard V2.5
+# ---------------------------------------------------------------------
+def filter_macro_events_for_dashboard(
+    events: list[dict[str, Any]],
+    importance_filter: list[str] | None = None,
+    category_filter: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Filtre les événements macro pour l'affichage dashboard.
+    """
+    if not events:
+        return []
+
+    importance_filter = importance_filter or []
+    category_filter = category_filter or []
+
+    filtered = []
+
+    for event in events:
+        importance = str(event.get("importance", "")).strip()
+        category = str(event.get("category", "")).strip()
+
+        if importance_filter and importance not in importance_filter:
+            continue
+
+        if category_filter and category not in category_filter:
+            continue
+
+        filtered.append(event)
+
+    return filtered
+
+
+def event_badge_style(importance: str) -> tuple[str, str]:
+    """
+    Retourne background / couleur texte selon l'importance.
+    """
+    importance = str(importance or "").strip()
+
+    if importance == "High":
+        return "#fee2e2", "#991b1b"
+
+    if importance == "Medium":
+        return "#fef3c7", "#92400e"
+
+    if importance == "Low":
+        return "#e0f2fe", "#075985"
+
+    return "#e5e7eb", "#374151"
+
+
+def render_event_card(event: dict[str, Any]) -> None:
+    """
+    Affiche une carte compacte pour un événement macro.
+    Version corrigée : HTML sans indentation Markdown parasite.
+    """
+    date = str(event.get("date", "N/A"))
+    category = str(event.get("category", "Macro"))
+    importance = str(event.get("importance", "N/A"))
+    title = str(event.get("title", "Untitled event"))
+    summary = str(event.get("summary", ""))
+    source = str(event.get("source", "manual"))
+
+    bg, color = event_badge_style(importance)
+
+    html = f"""
+<div style="background:#ffffff;border:1px solid #d1d5db;border-radius:16px;padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,0.06);margin-bottom:10px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px;">
+    <div style="color:#111827;font-size:15px;font-weight:800;line-height:1.25;">
+      {title}
+    </div>
+    <div style="background:{bg};color:{color};border-radius:999px;padding:4px 10px;font-size:11px;font-weight:800;white-space:nowrap;">
+      {importance}
+    </div>
+  </div>
+
+  <div style="color:#6b7280;font-size:12px;font-weight:600;margin-bottom:8px;">
+    {date} · {category} · source: {source}
+  </div>
+
+  <div style="color:#111827;font-size:13px;line-height:1.35;">
+    {summary}
+  </div>
+</div>
+"""
+
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def build_event_impact_summary(
+    events: list[dict[str, Any]],
+    macro_regime: dict[str, Any],
+) -> list[str]:
+    """
+    Produit une courte lecture de l'impact potentiel des événements récents.
+    """
+    if not events:
+        return ["No recent macro event available for impact analysis."]
+
+    high_count = sum(1 for e in events if str(e.get("importance")) == "High")
+    categories = [str(e.get("category", "Macro")) for e in events]
+    unique_categories = list(dict.fromkeys(categories))
+
+    regime = macro_regime.get("regime", "N/A") if macro_regime else "N/A"
+    flags = macro_regime.get("flags", []) if macro_regime else []
+
+    lines = []
+
+    lines.append(
+        f"{len(events)} recent macro event(s) are currently displayed, including {high_count} high-importance event(s)."
+    )
+
+    if unique_categories:
+        lines.append(
+            "Main event categories: " + ", ".join(unique_categories[:5]) + "."
+        )
+
+    lines.append(f"Current macro regime is {regime}.")
+
+    if flags:
+        lines.append(
+            "Active regime flags that may interact with these events: " + ", ".join(flags) + "."
+        )
+
+    return lines[:4]
+
+
+def render_macro_events_center(
+    events: list[dict[str, Any]],
+    macro_regime: dict[str, Any],
+) -> None:
+    """
+    Affiche le Macro Events Center.
+    """
+
+    if not events:
+        st.info("No macro events match the current filters.")
+        return
+
+    impact_lines = build_event_impact_summary(events, macro_regime)
+
+    left, right = st.columns([1.15, 1])
+
+    with left:
+        st.markdown("#### Recent Events")
+
+        for event in events:
+            render_event_card(event)
+
+    with right:
+        st.markdown("#### Event Impact")
+        for line in impact_lines:
+            st.markdown(f"- {line}")
+
+        event_df = pd.DataFrame(events)
+
+        if not event_df.empty:
+            st.markdown("#### Event Table")
+            display_cols = ["date", "category", "importance", "title", "source"]
+            for col in display_cols:
+                if col not in event_df.columns:
+                    event_df[col] = ""
+
+            st.dataframe(
+                event_df[display_cols],
+                use_container_width=True,
+                hide_index=True,
+                height=260,
+            )
