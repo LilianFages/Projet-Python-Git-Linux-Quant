@@ -1,0 +1,34 @@
+[
+  {
+    "date": "2026-05-13",
+    "category": "Rates",
+    "importance": "High",
+    "title": "US yields remain a key market driver",
+    "summary": "US long-term yields remain an important factor for equity valuation, especially for growth and technology assets.",
+    "source": "manual"
+  },
+  {
+    "date": "2026-05-13",
+    "category": "Equity",
+    "importance": "Medium",
+    "title": "Risk appetite remains supported",
+    "summary": "Major equity indices continue to show positive short-term momentum, supporting a constructive risk sentiment.",
+    "source": "manual"
+  },
+  {
+    "date": "2026-05-13",
+    "category": "Commodities",
+    "importance": "Medium",
+    "title": "Energy prices monitored for inflation pressure",
+    "summary": "Oil and natural gas moves remain relevant for inflation expectations and cross-asset risk sentiment.",
+    "source": "manual"
+  },
+  {
+    "date": "2026-05-13",
+    "category": "FX",
+    "importance": "Medium",
+    "title": "Dollar strength remains a portfolio risk factor",
+    "summary": "A stronger dollar can affect international assets, commodities and companies with foreign currency exposure.",
+    "source": "manual"
+  }
+]
