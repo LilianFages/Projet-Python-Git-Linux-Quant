@@ -49,3 +49,6 @@ reports/daily_report_*.md
 
 reports/outputs/*
 !reports/outputs/.gitkeep
+
+reports/outputs/macro_news/*.json
+reports/outputs/macro_news/*.md
