@@ -1,0 +1,52 @@
+[
+  {
+    "source_id": "central_banks_placeholder",
+    "name": "Central Banks Feed Placeholder",
+    "type": "rss",
+    "category": "Central Banks",
+    "enabled": false,
+    "url": "",
+    "default_importance": "High",
+    "tags": ["Central Banks", "Fed", "ECB", "Rates"]
+  },
+  {
+    "source_id": "inflation_placeholder",
+    "name": "Inflation Data Feed Placeholder",
+    "type": "rss",
+    "category": "Inflation Data",
+    "enabled": false,
+    "url": "",
+    "default_importance": "High",
+    "tags": ["Inflation", "CPI", "PCE", "PPI", "Rates"]
+  },
+  {
+    "source_id": "rates_placeholder",
+    "name": "Rates Feed Placeholder",
+    "type": "rss",
+    "category": "Rates",
+    "enabled": false,
+    "url": "",
+    "default_importance": "Medium",
+    "tags": ["Rates", "Treasury", "Yields", "Bonds"]
+  },
+  {
+    "source_id": "commodities_placeholder",
+    "name": "Commodities Feed Placeholder",
+    "type": "rss",
+    "category": "Commodities",
+    "enabled": false,
+    "url": "",
+    "default_importance": "Medium",
+    "tags": ["Oil", "Gas", "Commodities", "Inflation Pressure"]
+  },
+  {
+    "source_id": "risk_sentiment_placeholder",
+    "name": "Risk Sentiment Feed Placeholder",
+    "type": "rss",
+    "category": "Risk Sentiment",
+    "enabled": false,
+    "url": "",
+    "default_importance": "Medium",
+    "tags": ["Risk Sentiment", "Equity", "Risk-On", "Risk-Off"]
+  }
+]

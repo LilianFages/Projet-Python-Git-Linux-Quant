@@ -29,8 +29,8 @@ def find_repo_root() -> Path:
 
 REPO_ROOT = find_repo_root()
 MACRO_NEWS_PATH = REPO_ROOT / "reports" / "data" / "macro_news.json"
-
 MACRO_NEWS_INBOX_PATH = REPO_ROOT / "reports" / "data" / "macro_news_inbox.json"
+MACRO_NEWS_SOURCES_PATH = REPO_ROOT / "reports" / "data" / "macro_news_sources.json"
 
 
 # ------------------------------------------------------------
@@ -97,6 +97,42 @@ def load_json_list(path: Path) -> list[dict[str, Any]]:
 
     except Exception:
         return []
+
+def load_news_sources(path: Path = MACRO_NEWS_SOURCES_PATH) -> list[dict[str, Any]]:
+    """
+    Charge la configuration des sources de news macro.
+
+    Retourne uniquement une liste de dictionnaires.
+    Ne casse jamais le pipeline si le fichier est absent ou invalide.
+    """
+    return load_json_list(path)
+
+
+def get_enabled_sources(
+    source_type: str | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Retourne les sources activées.
+
+    Si source_type est fourni, filtre aussi sur le type :
+    - rss
+    - api
+    - calendar
+    """
+    sources = load_news_sources()
+
+    enabled = [
+        source for source in sources
+        if bool(source.get("enabled", False))
+    ]
+
+    if source_type is not None:
+        enabled = [
+            source for source in enabled
+            if str(source.get("type", "")).lower() == source_type.lower()
+        ]
+
+    return enabled
 
 
 def write_json_list(path: Path, data: list[dict[str, Any]]) -> None:
@@ -280,16 +316,21 @@ def fetch_manual_source_news() -> list[dict[str, Any]]:
 
 def fetch_rss_macro_news() -> list[dict[str, Any]]:
     """
-    Extension future : récupération de news depuis un ou plusieurs flux RSS fiables.
+    Extension future : récupération de news depuis les flux RSS activés.
 
-    Exemple futur :
-    - banques centrales ;
-    - calendrier économique ;
-    - flux commodities ;
-    - flux macro généraliste.
-
-    La fonction devra retourner une liste de dictionnaires au format macro_news.
+    Pour l'instant, cette fonction ne fetch pas encore les flux.
+    Elle lit simplement la configuration et prépare le point d'intégration.
     """
+    rss_sources = get_enabled_sources(source_type="rss")
+
+    if not rss_sources:
+        return []
+
+    # Prochaine étape :
+    # - installer/ajouter feedparser si besoin ;
+    # - boucler sur rss_sources ;
+    # - parser les items ;
+    # - normaliser vers le format macro_news.
     return []
 
 
@@ -428,6 +469,13 @@ def print_news_status(max_items: int = 5) -> None:
     inbox_news = load_json_list(MACRO_NEWS_INBOX_PATH)
     published_news = load_json_list(MACRO_NEWS_PATH)
 
+    sources = load_news_sources()
+    enabled_sources = [s for s in sources if bool(s.get("enabled", False))]
+    enabled_rss_sources = [
+        s for s in enabled_sources
+        if str(s.get("type", "")).lower() == "rss"
+    ]
+
     inbox_news = sort_news([normalize_news_item(item) for item in inbox_news])
     published_news = sort_news([normalize_news_item(item) for item in published_news])
 
@@ -437,6 +485,9 @@ def print_news_status(max_items: int = 5) -> None:
     print(f"Published path: {MACRO_NEWS_PATH}")
     print(f"Inbox news: {len(inbox_news)}")
     print(f"Published news: {len(published_news)}")
+    print(f"Configured sources: {len(sources)}")
+    print(f"Enabled sources: {len(enabled_sources)}")
+    print(f"Enabled RSS sources: {len(enabled_rss_sources)}")
 
     def print_items(title: str, items: list[dict[str, Any]]) -> None:
         print("")
