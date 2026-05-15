@@ -29,6 +29,8 @@ def find_repo_root() -> Path:
 REPO_ROOT = find_repo_root()
 MACRO_NEWS_PATH = REPO_ROOT / "reports" / "data" / "macro_news.json"
 
+MACRO_NEWS_INBOX_PATH = REPO_ROOT / "reports" / "data" / "macro_news_inbox.json"
+
 
 # ------------------------------------------------------------
 # Config
@@ -253,21 +255,24 @@ def fetch_external_macro_news() -> list[dict[str, Any]]:
 # ------------------------------------------------------------
 # Main pipeline
 # ------------------------------------------------------------
-def run() -> dict[str, Any]:
+def run(clear_inbox: bool = True) -> dict[str, Any]:
     """
     Pipeline principal :
     - charge les news existantes ;
+    - charge les news inbox ;
     - récupère les futures news externes ;
     - normalise ;
     - valide ;
     - déduplique ;
     - trie ;
-    - réécrit macro_news.json.
+    - réécrit macro_news.json ;
+    - vide l'inbox si clear_inbox=True.
     """
     existing_news = load_json_list(MACRO_NEWS_PATH)
+    inbox_news = load_json_list(MACRO_NEWS_INBOX_PATH)
     fetched_news = fetch_external_macro_news()
 
-    raw_news = existing_news + fetched_news
+    raw_news = existing_news + inbox_news + fetched_news
 
     normalized_news = [
         normalize_news_item(item)
@@ -285,21 +290,30 @@ def run() -> dict[str, Any]:
 
     write_json_list(MACRO_NEWS_PATH, sorted_output)
 
+    if clear_inbox:
+        write_json_list(MACRO_NEWS_INBOX_PATH, [])
+
     return {
         "path": str(MACRO_NEWS_PATH),
+        "inbox_path": str(MACRO_NEWS_INBOX_PATH),
         "existing_count": len(existing_news),
+        "inbox_count": len(inbox_news),
         "fetched_count": len(fetched_news),
         "valid_count": len(valid_news),
         "final_count": len(sorted_output),
+        "inbox_cleared": clear_inbox,
     }
 
 
 if __name__ == "__main__":
-    result = run()
+    result = run(clear_inbox=True)
 
     print("[OK] Macro news pipeline completed")
-    print(f"Path: {result['path']}")
+    print(f"Output path: {result['path']}")
+    print(f"Inbox path: {result['inbox_path']}")
     print(f"Existing news: {result['existing_count']}")
+    print(f"Inbox news: {result['inbox_count']}")
     print(f"Fetched news: {result['fetched_count']}")
     print(f"Valid news: {result['valid_count']}")
     print(f"Final news: {result['final_count']}")
+    print(f"Inbox cleared: {result['inbox_cleared']}")

@@ -1,5 +1,23 @@
 [
   {
+    "date": "2026-05-15",
+    "category": "Rates",
+    "importance": "High",
+    "title": "US yields remain under close watch",
+    "summary": "Markets continue to monitor US yields as rate expectations remain a central driver of cross-asset sentiment.",
+    "source": "inbox-test",
+    "url": "",
+    "tickers": [
+      "^TNX",
+      "^FVX"
+    ],
+    "tags": [
+      "Rates",
+      "Treasury",
+      "Risk Sentiment"
+    ]
+  },
+  {
     "date": "2026-05-13",
     "category": "Central Banks",
     "importance": "High",
