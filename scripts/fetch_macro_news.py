@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 import argparse
@@ -78,6 +78,74 @@ VALID_IMPORTANCE = {
     "Medium",
     "Low",
 }
+
+VALID_WINDOWS = {
+    "recent",
+    "overnight",
+    "morning",
+    "afternoon",
+    "full-day",
+    "alert-check",
+}
+
+
+REPORT_WINDOW_DEFINITIONS = {
+    "overnight": {
+        "label": "Overnight Report",
+        "description": "Previous evening to current morning.",
+        "start_hour": 18,
+        "start_minute": 30,
+        "end_hour": 8,
+        "end_minute": 0,
+        "crosses_midnight": True,
+    },
+    "morning": {
+        "label": "Midday Report",
+        "description": "Current morning news.",
+        "start_hour": 8,
+        "start_minute": 0,
+        "end_hour": 12,
+        "end_minute": 30,
+        "crosses_midnight": False,
+    },
+    "afternoon": {
+        "label": "Evening Report",
+        "description": "Current afternoon news.",
+        "start_hour": 12,
+        "start_minute": 30,
+        "end_hour": 18,
+        "end_minute": 30,
+        "crosses_midnight": False,
+    },
+    "full-day": {
+        "label": "Full-Day Report",
+        "description": "Current trading day news.",
+        "start_hour": 8,
+        "start_minute": 0,
+        "end_hour": 18,
+        "end_minute": 30,
+        "crosses_midnight": False,
+    },
+    "alert-check": {
+        "label": "Intraday Alert Check",
+        "description": "Short lookback used for critical intraday alert detection.",
+        "start_hour": None,
+        "start_minute": None,
+        "end_hour": None,
+        "end_minute": None,
+        "crosses_midnight": False,
+    },
+    "recent": {
+        "label": "Recent News",
+        "description": "No intraday session filter.",
+        "start_hour": None,
+        "start_minute": None,
+        "end_hour": None,
+        "end_minute": None,
+        "crosses_midnight": False,
+    },
+}
+
 
 
 # ------------------------------------------------------------
@@ -221,6 +289,7 @@ def normalize_news_item(item: dict[str, Any]) -> dict[str, Any]:
     """
     normalized = {
         "date": normalize_date(item.get("date")),
+        "published_at": normalize_text(item.get("published_at")),
         "category": normalize_category(item.get("category")),
         "importance": normalize_importance(item.get("importance")),
         "title": normalize_text(item.get("title")),
@@ -387,9 +456,11 @@ def rss_entry_to_macro_news(entry: Any, source: dict[str, Any]) -> dict[str, Any
     importance = source.get("default_importance", "Medium")
     tags = source.get("tags", [])
     source_name = source.get("name", source.get("source_id", "rss"))
+    published_at = parse_rss_datetime(entry)
 
     item = {
         "date": parse_rss_date(entry),
+        "published_at": published_at,
         "category": category,
         "importance": importance,
         "title": title,
@@ -410,6 +481,30 @@ def stable_news_id(*parts: Any) -> str:
     raw = "|".join(str(p or "").strip().lower() for p in parts)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
+def parse_rss_datetime(entry: Any) -> str:
+    """
+    Convertit une date RSS en timestamp ISO local-naive quand disponible.
+
+    Retourne une chaîne vide si aucun timestamp exploitable n'est disponible.
+    """
+    try:
+        if getattr(entry, "published_parsed", None):
+            parsed = entry.published_parsed
+            return datetime(*parsed[:6]).isoformat(timespec="seconds")
+
+        if getattr(entry, "updated_parsed", None):
+            parsed = entry.updated_parsed
+            return datetime(*parsed[:6]).isoformat(timespec="seconds")
+
+        published = getattr(entry, "published", None) or getattr(entry, "updated", None)
+        if published:
+            dt = datetime.fromisoformat(str(published).replace("Z", "+00:00"))
+            return dt.replace(tzinfo=None).isoformat(timespec="seconds")
+
+    except Exception:
+        return ""
+
+    return ""
 
 def parse_rss_date(entry: Any) -> str:
     """
@@ -821,6 +916,137 @@ def fetch_external_macro_news(
 
     return news
 
+def parse_item_datetime(item: dict[str, Any]) -> datetime | None:
+    """
+    Retourne le timestamp d'une news si disponible.
+    Priorité :
+    - published_at
+    - date à minuit si pas d'heure
+    """
+    published_at = str(item.get("published_at", "")).strip()
+
+    if published_at:
+        try:
+            return datetime.fromisoformat(published_at.replace("Z", "+00:00")).replace(tzinfo=None)
+        except Exception:
+            pass
+
+    try:
+        return datetime.fromisoformat(str(item.get("date"))[:10])
+    except Exception:
+        return None
+
+
+def get_report_window_bounds(
+    window: str,
+    reference_dt: datetime | None = None,
+) -> tuple[datetime | None, datetime | None]:
+    """
+    Calcule les bornes temporelles d'une session de news.
+
+    Heure locale machine.
+    """
+    window = str(window or "recent").strip()
+
+    if window not in VALID_WINDOWS:
+        window = "recent"
+
+    if window == "recent":
+        return None, None
+
+    now = reference_dt or datetime.now()
+
+    if window == "alert-check":
+        return now - timedelta(minutes=30), now
+
+    cfg = REPORT_WINDOW_DEFINITIONS.get(window, {})
+
+    start_hour = cfg.get("start_hour")
+    end_hour = cfg.get("end_hour")
+
+    if start_hour is None or end_hour is None:
+        return None, None
+
+    if cfg.get("crosses_midnight"):
+        start = (now - timedelta(days=1)).replace(
+            hour=int(cfg.get("start_hour")),
+            minute=int(cfg.get("start_minute", 0)),
+            second=0,
+            microsecond=0,
+        )
+        end = now.replace(
+            hour=int(cfg.get("end_hour")),
+            minute=int(cfg.get("end_minute", 0)),
+            second=0,
+            microsecond=0,
+        )
+    else:
+        start = now.replace(
+            hour=int(cfg.get("start_hour")),
+            minute=int(cfg.get("start_minute", 0)),
+            second=0,
+            microsecond=0,
+        )
+        end = now.replace(
+            hour=int(cfg.get("end_hour")),
+            minute=int(cfg.get("end_minute", 0)),
+            second=0,
+            microsecond=0,
+        )
+
+    return start, end
+
+
+def item_matches_report_window(
+    item: dict[str, Any],
+    window: str,
+    reference_dt: datetime | None = None,
+) -> bool:
+    """
+    Indique si une news appartient à une fenêtre de report.
+
+    Si l'item n'a qu'une date sans heure, on le garde pour recent/full-day,
+    et on le garde aussi si sa date correspond au jour de la fenêtre.
+    """
+    window = str(window or "recent").strip()
+
+    if window == "recent":
+        return True
+
+    start, end = get_report_window_bounds(window, reference_dt=reference_dt)
+
+    if start is None or end is None:
+        return True
+
+    item_dt = parse_item_datetime(item)
+
+    if item_dt is None:
+        return True
+
+    has_intraday_timestamp = bool(str(item.get("published_at", "")).strip())
+
+    if has_intraday_timestamp:
+        return start <= item_dt <= end
+
+    # Date-only fallback : on garde si la date correspond à la date de fin de fenêtre.
+    return item_dt.date() == end.date()
+
+
+def filter_news_by_report_window(
+    news: list[dict[str, Any]],
+    window: str,
+    reference_dt: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Filtre une liste de news selon la fenêtre de report.
+    """
+    if not news:
+        return []
+
+    return [
+        item for item in news
+        if item_matches_report_window(item, window=window, reference_dt=reference_dt)
+    ]
 
 # ------------------------------------------------------------
 # Main pipeline
@@ -831,6 +1057,7 @@ def run(
     use_rss: bool = False,
     use_api: bool = False,
     use_calendar: bool = False,
+    window: str = "recent",
 ) -> dict[str, Any]:
     """
     Pipeline principal :
@@ -854,6 +1081,12 @@ def run(
     )
 
     raw_news = existing_news + inbox_news + fetched_news
+
+    raw_news = filter_news_by_report_window(
+    raw_news,
+    window=window,
+    reference_dt=datetime.now(),
+)
 
     normalized_news = [
         normalize_news_item(item)
@@ -888,6 +1121,7 @@ def run(
         "use_rss": use_rss,
         "use_api": use_api,
         "use_calendar": use_calendar,
+        "window": window,
     }
 
 def print_news_status(max_items: int = 5) -> None:
@@ -991,6 +1225,13 @@ def parse_args() -> argparse.Namespace:
         "--use-calendar",
         action="store_true",
         help="Enable macro calendar source adapter. Currently scaffolded only.",
+    )
+
+    parser.add_argument(
+        "--window",
+        choices=sorted(VALID_WINDOWS),
+        default="recent",
+        help="Report window used to filter news: recent, overnight, morning, afternoon, full-day, alert-check.",
     )
 
     # ------------------------------------------------------------------
@@ -1125,6 +1366,7 @@ if __name__ == "__main__":
             use_rss=args.use_rss,
             use_api=args.use_api,
             use_calendar=args.use_calendar,
+            window=args.window,
         )
 
         print("[OK] Macro news pipeline completed")
@@ -1140,3 +1382,4 @@ if __name__ == "__main__":
         print(f"Use RSS: {result['use_rss']}")
         print(f"Use API: {result['use_api']}")
         print(f"Use Calendar: {result['use_calendar']}")
+        print(f"Window: {result['window']}")
