@@ -336,6 +336,42 @@ def run(clear_inbox: bool = True, dry_run: bool = False) -> dict[str, Any]:
         "dry_run": dry_run,
     }
 
+def print_news_status(max_items: int = 5) -> None:
+    """
+    Affiche un résumé rapide de l'inbox et des news publiées.
+    """
+    inbox_news = load_json_list(MACRO_NEWS_INBOX_PATH)
+    published_news = load_json_list(MACRO_NEWS_PATH)
+
+    inbox_news = sort_news([normalize_news_item(item) for item in inbox_news])
+    published_news = sort_news([normalize_news_item(item) for item in published_news])
+
+    print("Macro News Status")
+    print("-" * 60)
+    print(f"Inbox path: {MACRO_NEWS_INBOX_PATH}")
+    print(f"Published path: {MACRO_NEWS_PATH}")
+    print(f"Inbox news: {len(inbox_news)}")
+    print(f"Published news: {len(published_news)}")
+
+    def print_items(title: str, items: list[dict[str, Any]]) -> None:
+        print("")
+        print(title)
+        print("-" * 60)
+
+        if not items:
+            print("No item.")
+            return
+
+        for item in items[:max_items]:
+            print(
+                f"- {item.get('date', '')} | "
+                f"{item.get('importance', '')} | "
+                f"{item.get('category', '')} | "
+                f"{item.get('title', '')}"
+            )
+
+    print_items("Inbox latest", inbox_news)
+    print_items("Published latest", published_news)
 
 def parse_args() -> argparse.Namespace:
     """
@@ -427,6 +463,21 @@ def parse_args() -> argparse.Namespace:
         help="Optional tags.",
     )
 
+    # ------------------------------------------------------------------
+    # Status command
+    # ------------------------------------------------------------------
+    status_parser = subparsers.add_parser(
+        "status",
+        help="Show macro news inbox and published news status.",
+    )
+
+    status_parser.add_argument(
+        "--max-items",
+        type=int,
+        default=5,
+        help="Maximum number of latest items to display.",
+    )
+
     return parser.parse_args()
 
 if __name__ == "__main__":
@@ -453,6 +504,9 @@ if __name__ == "__main__":
         print(f"Title: {result['added_title']}")
         print(f"Category: {result['added_category']}")
         print(f"Importance: {result['added_importance']}")
+
+    elif args.command == "status":
+        print_news_status(max_items=args.max_items)
 
     else:
         result = run(
