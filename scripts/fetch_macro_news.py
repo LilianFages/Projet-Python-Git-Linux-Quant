@@ -108,6 +108,35 @@ def write_json_list(path: Path, data: list[dict[str, Any]]) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+def append_to_inbox(item: dict[str, Any]) -> dict[str, Any]:
+    """
+    Ajoute une news normalisée dans macro_news_inbox.json.
+    """
+    inbox_news = load_json_list(MACRO_NEWS_INBOX_PATH)
+
+    normalized_item = normalize_news_item(item)
+
+    if not is_valid_news_item(normalized_item):
+        raise ValueError(
+            "News item invalide : les champs date, title et summary sont obligatoires."
+        )
+
+    inbox_news.append(normalized_item)
+
+    # Déduplication légère de l'inbox pour éviter les doublons immédiats.
+    inbox_news = deduplicate_news(inbox_news)
+    inbox_news = sort_news(inbox_news)
+
+    write_json_list(MACRO_NEWS_INBOX_PATH, inbox_news)
+
+    return {
+        "inbox_path": str(MACRO_NEWS_INBOX_PATH),
+        "inbox_count": len(inbox_news),
+        "added_title": normalized_item.get("title", ""),
+        "added_category": normalized_item.get("category", ""),
+        "added_importance": normalized_item.get("importance", ""),
+    }
+
 
 # ------------------------------------------------------------
 # Normalization / validation
@@ -316,6 +345,11 @@ def parse_args() -> argparse.Namespace:
         description="Normalize, deduplicate and publish macro news."
     )
 
+    subparsers = parser.add_subparsers(dest="command")
+
+    # ------------------------------------------------------------------
+    # Default publish pipeline options
+    # ------------------------------------------------------------------
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -328,23 +362,111 @@ def parse_args() -> argparse.Namespace:
         help="Do not clear macro_news_inbox.json after ingestion.",
     )
 
+    # ------------------------------------------------------------------
+    # Add command
+    # ------------------------------------------------------------------
+    add_parser = subparsers.add_parser(
+        "add",
+        help="Add a macro news item to macro_news_inbox.json.",
+    )
+
+    add_parser.add_argument(
+        "--date",
+        default=datetime.now().date().isoformat(),
+        help="News date in YYYY-MM-DD format. Defaults to today.",
+    )
+
+    add_parser.add_argument(
+        "--category",
+        required=True,
+        help="News category, e.g. Rates, Central Banks, Inflation Data.",
+    )
+
+    add_parser.add_argument(
+        "--importance",
+        default="Medium",
+        choices=["High", "Medium", "Low"],
+        help="Importance level.",
+    )
+
+    add_parser.add_argument(
+        "--title",
+        required=True,
+        help="News title.",
+    )
+
+    add_parser.add_argument(
+        "--summary",
+        required=True,
+        help="News summary.",
+    )
+
+    add_parser.add_argument(
+        "--source",
+        default="manual-cli",
+        help="News source.",
+    )
+
+    add_parser.add_argument(
+        "--url",
+        default="",
+        help="Optional source URL.",
+    )
+
+    add_parser.add_argument(
+        "--tickers",
+        nargs="*",
+        default=[],
+        help="Optional related tickers.",
+    )
+
+    add_parser.add_argument(
+        "--tags",
+        nargs="*",
+        default=[],
+        help="Optional tags.",
+    )
+
     return parser.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
 
-    result = run(
-        clear_inbox=not args.keep_inbox,
-        dry_run=args.dry_run,
-    )
+    if args.command == "add":
+        item = {
+            "date": args.date,
+            "category": args.category,
+            "importance": args.importance,
+            "title": args.title,
+            "summary": args.summary,
+            "source": args.source,
+            "url": args.url,
+            "tickers": args.tickers,
+            "tags": args.tags,
+        }
 
-    print("[OK] Macro news pipeline completed")
-    print(f"Output path: {result['path']}")
-    print(f"Inbox path: {result['inbox_path']}")
-    print(f"Existing news: {result['existing_count']}")
-    print(f"Inbox news: {result['inbox_count']}")
-    print(f"Fetched news: {result['fetched_count']}")
-    print(f"Valid news: {result['valid_count']}")
-    print(f"Final news: {result['final_count']}")
-    print(f"Inbox cleared: {result['inbox_cleared']}")
-    print(f"Dry run: {result['dry_run']}")
+        result = append_to_inbox(item)
+
+        print("[OK] Macro news added to inbox")
+        print(f"Inbox path: {result['inbox_path']}")
+        print(f"Inbox count: {result['inbox_count']}")
+        print(f"Title: {result['added_title']}")
+        print(f"Category: {result['added_category']}")
+        print(f"Importance: {result['added_importance']}")
+
+    else:
+        result = run(
+            clear_inbox=not args.keep_inbox,
+            dry_run=args.dry_run,
+        )
+
+        print("[OK] Macro news pipeline completed")
+        print(f"Output path: {result['path']}")
+        print(f"Inbox path: {result['inbox_path']}")
+        print(f"Existing news: {result['existing_count']}")
+        print(f"Inbox news: {result['inbox_count']}")
+        print(f"Fetched news: {result['fetched_count']}")
+        print(f"Valid news: {result['valid_count']}")
+        print(f"Final news: {result['final_count']}")
+        print(f"Inbox cleared: {result['inbox_cleared']}")
+        print(f"Dry run: {result['dry_run']}")
