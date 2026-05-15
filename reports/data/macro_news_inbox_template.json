@@ -1,0 +1,79 @@
+[
+  {
+    "date": "YYYY-MM-DD",
+    "category": "Central Banks",
+    "importance": "High",
+    "title": "Fed communication remains a key market driver",
+    "summary": "Markets continue to monitor Federal Reserve communication as monetary policy expectations remain central to cross-asset sentiment.",
+    "source": "manual",
+    "url": "",
+    "tickers": ["^TNX", "^GSPC", "DX-Y.NYB"],
+    "tags": ["Fed", "Rates", "Dollar", "Risk Sentiment"]
+  },
+  {
+    "date": "YYYY-MM-DD",
+    "category": "Inflation Data",
+    "importance": "High",
+    "title": "Inflation data influences rate expectations",
+    "summary": "Recent inflation data may affect market expectations for the path of monetary policy and real yields.",
+    "source": "manual",
+    "url": "",
+    "tickers": ["^TNX", "GC=F", "DX-Y.NYB"],
+    "tags": ["CPI", "PCE", "Inflation", "Rates"]
+  },
+  {
+    "date": "YYYY-MM-DD",
+    "category": "Rates",
+    "importance": "Medium",
+    "title": "US yields remain under close watch",
+    "summary": "US yield moves remain a key driver for equity valuation, growth assets and broader risk appetite.",
+    "source": "manual",
+    "url": "",
+    "tickers": ["^TNX", "^FVX"],
+    "tags": ["Treasury", "Yields", "Rates Pressure"]
+  },
+  {
+    "date": "YYYY-MM-DD",
+    "category": "Commodities",
+    "importance": "Medium",
+    "title": "Oil prices remain relevant for inflation pressure",
+    "summary": "Energy prices continue to be monitored as a potential source of inflation pressure and cross-asset volatility.",
+    "source": "manual",
+    "url": "",
+    "tickers": ["BZ=F", "CL=F"],
+    "tags": ["Oil", "Brent", "WTI", "Inflation Pressure"]
+  },
+  {
+    "date": "YYYY-MM-DD",
+    "category": "Geopolitical Risk",
+    "importance": "High",
+    "title": "Geopolitical risk remains a source of market uncertainty",
+    "summary": "Geopolitical developments may affect energy markets, risk sentiment and safe-haven demand.",
+    "source": "manual",
+    "url": "",
+    "tickers": ["BZ=F", "GC=F", "DX-Y.NYB"],
+    "tags": ["Geopolitics", "Oil", "Gold", "Risk-Off"]
+  },
+  {
+    "date": "YYYY-MM-DD",
+    "category": "Big Tech / Earnings",
+    "importance": "Medium",
+    "title": "Big Tech earnings remain important for equity sentiment",
+    "summary": "Large technology earnings continue to influence Nasdaq momentum and broader growth sentiment.",
+    "source": "manual",
+    "url": "",
+    "tickers": ["^IXIC", "NVDA", "MSFT", "AAPL"],
+    "tags": ["Earnings", "Big Tech", "Nasdaq", "Risk Appetite"]
+  },
+  {
+    "date": "YYYY-MM-DD",
+    "category": "Risk Sentiment",
+    "importance": "Medium",
+    "title": "Risk sentiment remains broadly constructive",
+    "summary": "Cross-asset moves suggest that investors continue to monitor the balance between equity momentum, rates pressure and dollar strength.",
+    "source": "manual",
+    "url": "",
+    "tickers": ["^GSPC", "^IXIC", "BTC-USD"],
+    "tags": ["Risk-On", "Equity", "Crypto", "Momentum"]
+  }
+]
