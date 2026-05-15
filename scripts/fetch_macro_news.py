@@ -6,7 +6,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 import argparse
+import hashlib
 
+try:
+    import feedparser
+except Exception:
+    feedparser = None
 
 # ------------------------------------------------------------
 # Project paths
@@ -224,6 +229,7 @@ def normalize_news_item(item: dict[str, Any]) -> dict[str, Any]:
         "url": normalize_text(item.get("url")),
         "tickers": item.get("tickers") if isinstance(item.get("tickers"), list) else [],
         "tags": item.get("tags") if isinstance(item.get("tags"), list) else [],
+        "news_id": normalize_text(item.get("news_id")),
     }
 
     return normalized
@@ -247,8 +253,17 @@ def is_valid_news_item(item: dict[str, Any]) -> bool:
 
 def dedupe_key(item: dict[str, Any]) -> tuple[str, str, str]:
     """
-    Clé de déduplication simple.
+    Clé de déduplication.
+
+    Priorité :
+    - news_id si disponible ;
+    - sinon date/category/title.
     """
+    news_id = str(item.get("news_id", "")).strip()
+
+    if news_id:
+        return ("news_id", news_id, "")
+
     return (
         str(item.get("date", "")),
         str(item.get("category", "")),
@@ -313,25 +328,155 @@ def fetch_manual_source_news() -> list[dict[str, Any]]:
     """
     return []
 
-
-def fetch_rss_macro_news() -> list[dict[str, Any]]:
+def stable_news_id(*parts: Any) -> str:
     """
-    Extension future : récupération de news depuis les flux RSS activés.
-
-    Pour l'instant, cette fonction ne fetch pas encore les flux.
-    Elle lit simplement la configuration et prépare le point d'intégration.
+    Génère un identifiant stable à partir de champs textuels.
     """
-    rss_sources = get_enabled_sources(source_type="rss")
+    raw = "|".join(str(p or "").strip().lower() for p in parts)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
-    if not rss_sources:
-        return []
 
-    # Prochaine étape :
-    # - installer/ajouter feedparser si besoin ;
-    # - boucler sur rss_sources ;
-    # - parser les items ;
-    # - normaliser vers le format macro_news.
-    return []
+def parse_rss_date(entry: Any) -> str:
+    """
+    Convertit une date RSS en YYYY-MM-DD.
+    Fallback : date du jour.
+    """
+    try:
+        if getattr(entry, "published_parsed", None):
+            parsed = entry.published_parsed
+            return datetime(*parsed[:6]).date().isoformat()
+
+        if getattr(entry, "updated_parsed", None):
+            parsed = entry.updated_parsed
+            return datetime(*parsed[:6]).date().isoformat()
+
+        published = getattr(entry, "published", None) or getattr(entry, "updated", None)
+        if published:
+            return normalize_date(str(published)[:10])
+
+    except Exception:
+        pass
+
+    return datetime.now().date().isoformat()
+
+
+def clean_rss_text(value: Any) -> str:
+    """
+    Nettoyage simple des textes RSS.
+    """
+    text = str(value or "").strip()
+    text = text.replace("\n", " ").replace("\r", " ")
+    while "  " in text:
+        text = text.replace("  ", " ")
+    return text
+
+
+def rss_entry_to_macro_news(entry: Any, source: dict[str, Any]) -> dict[str, Any]:
+    """
+    Convertit une entrée RSS en item macro_news normalisé.
+    """
+    title = clean_rss_text(getattr(entry, "title", ""))
+    summary = clean_rss_text(
+        getattr(entry, "summary", "")
+        or getattr(entry, "description", "")
+        or title
+    )
+    url = clean_rss_text(getattr(entry, "link", ""))
+
+    category = source.get("category", "Macro")
+    importance = source.get("default_importance", "Medium")
+    tags = source.get("tags", [])
+    source_name = source.get("name", source.get("source_id", "rss"))
+
+    item = {
+        "date": parse_rss_date(entry),
+        "category": category,
+        "importance": importance,
+        "title": title,
+        "summary": summary,
+        "source": source_name,
+        "url": url,
+        "tickers": [],
+        "tags": tags if isinstance(tags, list) else [],
+        "news_id": stable_news_id(source_name, title, url),
+    }
+
+    return normalize_news_item(item)
+
+def stable_news_id(*parts: Any) -> str:
+    """
+    Génère un identifiant stable à partir de champs textuels.
+    """
+    raw = "|".join(str(p or "").strip().lower() for p in parts)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def parse_rss_date(entry: Any) -> str:
+    """
+    Convertit une date RSS en YYYY-MM-DD.
+    Fallback : date du jour.
+    """
+    try:
+        if getattr(entry, "published_parsed", None):
+            parsed = entry.published_parsed
+            return datetime(*parsed[:6]).date().isoformat()
+
+        if getattr(entry, "updated_parsed", None):
+            parsed = entry.updated_parsed
+            return datetime(*parsed[:6]).date().isoformat()
+
+        published = getattr(entry, "published", None) or getattr(entry, "updated", None)
+        if published:
+            return normalize_date(str(published)[:10])
+
+    except Exception:
+        pass
+
+    return datetime.now().date().isoformat()
+
+
+def clean_rss_text(value: Any) -> str:
+    """
+    Nettoyage simple des textes RSS.
+    """
+    text = str(value or "").strip()
+    text = text.replace("\n", " ").replace("\r", " ")
+    while "  " in text:
+        text = text.replace("  ", " ")
+    return text
+
+
+def rss_entry_to_macro_news(entry: Any, source: dict[str, Any]) -> dict[str, Any]:
+    """
+    Convertit une entrée RSS en item macro_news normalisé.
+    """
+    title = clean_rss_text(getattr(entry, "title", ""))
+    summary = clean_rss_text(
+        getattr(entry, "summary", "")
+        or getattr(entry, "description", "")
+        or title
+    )
+    url = clean_rss_text(getattr(entry, "link", ""))
+
+    category = source.get("category", "Macro")
+    importance = source.get("default_importance", "Medium")
+    tags = source.get("tags", [])
+    source_name = source.get("name", source.get("source_id", "rss"))
+
+    item = {
+        "date": parse_rss_date(entry),
+        "category": category,
+        "importance": importance,
+        "title": title,
+        "summary": summary,
+        "source": source_name,
+        "url": url,
+        "tickers": [],
+        "tags": tags if isinstance(tags, list) else [],
+        "news_id": stable_news_id(source_name, title, url),
+    }
+
+    return normalize_news_item(item)
 
 
 def fetch_api_macro_news() -> list[dict[str, Any]]:
@@ -364,6 +509,50 @@ def fetch_calendar_macro_events() -> list[dict[str, Any]]:
     """
     return []
 
+def fetch_rss_macro_news() -> list[dict[str, Any]]:
+    """
+    Récupère les news depuis les flux RSS activés dans macro_news_sources.json.
+
+    Chaque source activée doit avoir :
+    - type = rss
+    - enabled = true
+    - url non vide
+    """
+    rss_sources = get_enabled_sources(source_type="rss")
+
+    if not rss_sources:
+        return []
+
+    if feedparser is None:
+        print("[WARN] feedparser is not installed. RSS ingestion skipped.")
+        return []
+
+    output: list[dict[str, Any]] = []
+
+    for source in rss_sources:
+        url = str(source.get("url", "")).strip()
+
+        if not url:
+            continue
+
+        try:
+            parsed_feed = feedparser.parse(url)
+            entries = getattr(parsed_feed, "entries", [])
+
+            for entry in entries:
+                item = rss_entry_to_macro_news(entry, source)
+
+                if is_valid_news_item(item):
+                    output.append(item)
+
+        except Exception as exc:
+            print(
+                f"[WARN] RSS source failed: {source.get('source_id', 'unknown')} "
+                f"({type(exc).__name__})"
+            )
+            continue
+
+    return output
 
 def fetch_external_macro_news(
     use_manual: bool = True,
