@@ -186,11 +186,301 @@ def infer_report_factor(item: dict[str, Any]) -> str:
     return "Macro"
 
 
+def get_macro_value(macro_df: pd.DataFrame, name: str, column: str) -> float:
+    """
+    Récupère une métrique macro par nom d'instrument.
+    """
+    if macro_df is None or macro_df.empty:
+        return float("nan")
+
+    if "name" not in macro_df.columns or column not in macro_df.columns:
+        return float("nan")
+
+    rows = macro_df[macro_df["name"] == name]
+
+    if rows.empty:
+        return float("nan")
+
+    return pd.to_numeric(rows.iloc[0].get(column), errors="coerce")
+
+
+def infer_report_direction(item: dict[str, Any], factor: str) -> str:
+    """
+    Déduit une direction qualitative simple pour le rapport.
+    """
+    title = str(item.get("title", "")).lower()
+    summary = str(item.get("summary", "")).lower()
+    text = f"{title} {summary}"
+
+    positive_words = [
+        "supported",
+        "positive",
+        "strong",
+        "higher",
+        "rising",
+        "up",
+        "firm",
+        "constructive",
+        "resilient",
+        "surge",
+        "record",
+        "increase",
+        "increased",
+    ]
+
+    negative_words = [
+        "pressure",
+        "weaker",
+        "lower",
+        "falling",
+        "down",
+        "risk-off",
+        "concern",
+        "stress",
+        "slowdown",
+        "hawkish",
+        "closure",
+        "disruption",
+    ]
+
+    pos = sum(1 for word in positive_words if word in text)
+    neg = sum(1 for word in negative_words if word in text)
+
+    if factor in {
+        "Rates Pressure",
+        "Dollar Strength",
+        "Commodity Pressure",
+        "Inflation Pressure",
+        "Geopolitical Risk",
+        "Growth Risk",
+    }:
+        if pos > neg:
+            return "Pressure Up"
+        if neg > pos:
+            return "Pressure Down"
+        return "Mixed"
+
+    if factor == "Risk Appetite":
+        if pos > neg:
+            return "Supportive"
+        if neg > pos:
+            return "Negative"
+        return "Mixed"
+
+    return "Mixed"
+
+
+def infer_report_market_confirmation(
+    factor: str,
+    macro_df: pd.DataFrame,
+) -> tuple[str, int, list[str]]:
+    """
+    Croise un facteur news avec les mouvements de marché.
+    """
+    if macro_df is None or macro_df.empty:
+        return "No market data", 0, ["Market data unavailable."]
+
+    details: list[str] = []
+    score = 0
+
+    if factor == "Rates Pressure":
+        us10_5d = get_macro_value(macro_df, "US 10Y Yield", "change_5d")
+        us10_20d = get_macro_value(macro_df, "US 10Y Yield", "change_20d")
+        dxy_5d = get_macro_value(macro_df, "DXY", "ret_5d")
+
+        if pd.notna(us10_5d):
+            if us10_5d > 0.10:
+                score += 2
+                details.append(f"US 10Y is up {us10_5d:.3f} over 5D.")
+            elif us10_5d > 0.05:
+                score += 1
+                details.append("US 10Y is moderately higher over 5D.")
+
+        if pd.notna(us10_20d) and us10_20d > 0.20:
+            score += 1
+            details.append("US 10Y is materially higher over 20D.")
+
+        if pd.notna(dxy_5d) and dxy_5d > 0:
+            score += 1
+            details.append("DXY is positive over 5D.")
+
+    elif factor == "Dollar Strength":
+        dxy_5d = get_macro_value(macro_df, "DXY", "ret_5d")
+        eurusd_5d = get_macro_value(macro_df, "EUR/USD", "ret_5d")
+        usdjpy_5d = get_macro_value(macro_df, "USD/JPY", "ret_5d")
+
+        if pd.notna(dxy_5d):
+            if dxy_5d > 0.01:
+                score += 2
+                details.append("DXY is up more than 1% over 5D.")
+            elif dxy_5d > 0:
+                score += 1
+                details.append("DXY is positive over 5D.")
+
+        if pd.notna(eurusd_5d) and eurusd_5d < -0.01:
+            score += 1
+            details.append("EUR/USD is down more than 1% over 5D.")
+
+        if pd.notna(usdjpy_5d) and usdjpy_5d > 0.01:
+            score += 1
+            details.append("USD/JPY is up more than 1% over 5D.")
+
+    elif factor in {"Commodity Pressure", "Inflation Pressure"}:
+        brent_5d = get_macro_value(macro_df, "Brent", "ret_5d")
+        wti_5d = get_macro_value(macro_df, "WTI", "ret_5d")
+        gas_5d = get_macro_value(macro_df, "Natural Gas", "ret_5d")
+        copper_20d = get_macro_value(macro_df, "Copper", "ret_20d")
+
+        if pd.notna(brent_5d):
+            if brent_5d > 0.03:
+                score += 2
+                details.append("Brent is up more than 3% over 5D.")
+            elif brent_5d > 0:
+                score += 1
+                details.append("Brent is positive over 5D.")
+
+        if pd.notna(wti_5d):
+            if wti_5d > 0.03:
+                score += 2
+                details.append("WTI is up more than 3% over 5D.")
+            elif wti_5d > 0:
+                score += 1
+                details.append("WTI is positive over 5D.")
+
+        if pd.notna(gas_5d) and gas_5d > 0.05:
+            score += 2
+            details.append("Natural Gas is up more than 5% over 5D.")
+
+        if pd.notna(copper_20d) and copper_20d > 0.05:
+            score += 1
+            details.append("Copper is up more than 5% over 20D.")
+
+    elif factor == "Risk Appetite":
+        spx_5d = get_macro_value(macro_df, "S&P 500", "ret_5d")
+        nasdaq_5d = get_macro_value(macro_df, "Nasdaq", "ret_5d")
+        btc_5d = get_macro_value(macro_df, "Bitcoin", "ret_5d")
+
+        if pd.notna(spx_5d) and spx_5d > 0:
+            score += 1
+            details.append("S&P 500 is positive over 5D.")
+
+        if pd.notna(nasdaq_5d) and nasdaq_5d > 0:
+            score += 1
+            details.append("Nasdaq is positive over 5D.")
+
+        if pd.notna(btc_5d) and btc_5d > 0:
+            score += 1
+            details.append("Bitcoin is positive over 5D.")
+
+    elif factor in {"Growth Risk", "Geopolitical Risk"}:
+        spx_5d = get_macro_value(macro_df, "S&P 500", "ret_5d")
+        gold_5d = get_macro_value(macro_df, "Gold", "ret_5d")
+        brent_5d = get_macro_value(macro_df, "Brent", "ret_5d")
+
+        if pd.notna(spx_5d) and spx_5d < 0:
+            score += 1
+            details.append("S&P 500 is negative over 5D.")
+
+        if pd.notna(gold_5d) and gold_5d > 0:
+            score += 1
+            details.append("Gold is positive over 5D.")
+
+        if factor == "Geopolitical Risk" and pd.notna(brent_5d) and brent_5d > 0:
+            score += 1
+            details.append("Brent is positive over 5D.")
+
+    if score >= 3:
+        label = "Strong"
+    elif score >= 1:
+        label = "Moderate"
+    else:
+        label = "Weak"
+
+    if not details:
+        details.append("No clear market confirmation detected.")
+
+    return label, int(score), details[:3]
+
+
+def final_report_priority(
+    impact_score: int,
+    market_confirmation_score: int,
+    direction: str,
+) -> tuple[str, int]:
+    """
+    Combine importance textuelle + confirmation marché.
+    """
+    final_score = int(impact_score) + int(market_confirmation_score)
+
+    if direction in {"Pressure Up", "Negative"}:
+        final_score += 1
+
+    if final_score >= 6:
+        return "Critical", final_score
+
+    if final_score >= 4:
+        return "High", final_score
+
+    if final_score >= 2:
+        return "Medium", final_score
+
+    return "Low", final_score
+
+
+def is_report_alert_candidate(priority: str, final_score: int) -> bool:
+    """
+    Détermine si une news mérite une alerte dans le rapport.
+    """
+    return priority in {"Critical", "High"} and final_score >= 4
+
+
+def enrich_news_item_for_report(
+    item: dict[str, Any],
+    macro_df: pd.DataFrame,
+) -> dict[str, Any]:
+    """
+    Ajoute facteur, direction, market confirmation et priorité finale.
+    """
+    enriched = dict(item)
+
+    factor = infer_report_factor(enriched)
+    direction = infer_report_direction(enriched, factor)
+    impact_score = importance_rank(enriched.get("importance"))
+
+    confirmation_label, confirmation_score, confirmation_details = infer_report_market_confirmation(
+        factor=factor,
+        macro_df=macro_df,
+    )
+
+    final_priority, final_score = final_report_priority(
+        impact_score=impact_score,
+        market_confirmation_score=confirmation_score,
+        direction=direction,
+    )
+
+    enriched["factor"] = factor
+    enriched["direction"] = direction
+    enriched["impact_score"] = impact_score
+    enriched["market_confirmation"] = confirmation_label
+    enriched["market_score"] = confirmation_score
+    enriched["market_evidence"] = confirmation_details
+    enriched["final_priority"] = final_priority
+    enriched["final_score"] = final_score
+    enriched["alert_candidate"] = is_report_alert_candidate(final_priority, final_score)
+
+    return enriched
+
+
 def compute_basic_news_score(item: dict[str, Any]) -> int:
     """
-    Score simple pour trier les news dans le rapport.
-    Sera enrichi plus tard avec market confirmation et cross-source confirmation.
+    Score utilisé pour trier les news enrichies.
     """
+    if "final_score" in item:
+        try:
+            return int(item.get("final_score", 0))
+        except Exception:
+            pass
+
     return importance_rank(item.get("importance")) + source_reliability(item.get("source"))
 
 
@@ -209,15 +499,16 @@ def summarize_factor_breakdown(news: list[dict[str, Any]]) -> list[str]:
     if not news:
         return ["No factor concentration detected."]
 
-    factors = [infer_report_factor(item) for item in news]
-    counts = Counter(factors)
+    scores: dict[str, int] = {}
 
-    lines = []
+    for item in news:
+        factor = item.get("factor") or infer_report_factor(item)
+        score = int(item.get("final_score", compute_basic_news_score(item)))
+        scores[factor] = scores.get(factor, 0) + score
 
-    for factor, count in counts.most_common(5):
-        lines.append(f"{factor}: {count} item(s).")
+    sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
-    return lines
+    return [f"{factor}: final score {score}." for factor, score in sorted_scores[:5]]
 
 
 def summarize_sources(news: list[dict[str, Any]]) -> list[str]:
@@ -243,20 +534,31 @@ def build_interpretation(
     regime = macro_regime.get("regime", "N/A") if macro_regime else "N/A"
     flags = macro_regime.get("flags", []) if macro_regime else []
 
-    factors = [infer_report_factor(item) for item in news]
-    top_factor = Counter(factors).most_common(1)[0][0] if factors else "Macro"
+    factor_scores: dict[str, int] = {}
+
+    for item in news:
+        factor = item.get("factor") or infer_report_factor(item)
+        final_score = int(item.get("final_score", compute_basic_news_score(item)))
+        factor_scores[factor] = factor_scores.get(factor, 0) + final_score
+
+    top_factor = sorted(factor_scores.items(), key=lambda x: x[1], reverse=True)[0][0]
+
+    alert_count = sum(1 for item in news if item.get("alert_candidate"))
+    critical_count = sum(1 for item in news if item.get("final_priority") == "Critical")
 
     lines = [
         f"Current macro regime is {regime}.",
-        f"The dominant news factor in this window is {top_factor}.",
+        f"The dominant market-confirmed news factor in this window is {top_factor}.",
     ]
+
+    if critical_count:
+        lines.append(f"{critical_count} critical-priority item(s) detected.")
+
+    if alert_count:
+        lines.append(f"{alert_count} item(s) qualify as alert candidates.")
 
     if flags:
         lines.append("Active macro flags: " + ", ".join(flags) + ".")
-
-    high_count = sum(1 for item in news if item.get("importance") == "High")
-    if high_count:
-        lines.append(f"{high_count} high-importance item(s) require attention.")
 
     return lines[:5]
 
@@ -298,7 +600,12 @@ def build_macro_news_report(report_type: str = "morning") -> dict[str, Any]:
     # Validated context remains broad background, not session-specific.
     context_items = validated_context
 
-    sorted_news = sort_news_for_report(window_news)
+    enriched_news = [
+        enrich_news_item_for_report(item, macro_df=macro_df)
+        for item in window_news
+    ]
+
+    sorted_news = sort_news_for_report(enriched_news)
 
     report = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -315,6 +622,9 @@ def build_macro_news_report(report_type: str = "morning") -> dict[str, Any]:
             "news_count": len(sorted_news),
             "validated_context_count": len(context_items),
             "high_importance_count": sum(1 for item in sorted_news if item.get("importance") == "High"),
+            "alert_candidate_count": sum(1 for item in sorted_news if item.get("alert_candidate")),
+            "critical_count": sum(1 for item in sorted_news if item.get("final_priority") == "Critical"),
+            "high_priority_count": sum(1 for item in sorted_news if item.get("final_priority") == "High"),
             "top_factors": summarize_factor_breakdown(sorted_news),
             "sources": summarize_sources(sorted_news),
             "interpretation": build_interpretation(sorted_news, macro_regime),
@@ -357,6 +667,9 @@ def render_report_markdown(report: dict[str, Any]) -> str:
     lines.append(f"- Live news count: `{summary.get('news_count', 0)}`")
     lines.append(f"- High-importance items: `{summary.get('high_importance_count', 0)}`")
     lines.append(f"- Validated context items: `{summary.get('validated_context_count', 0)}`")
+    lines.append(f"- Critical-priority items: `{summary.get('critical_count', 0)}`")
+    lines.append(f"- High-priority items: `{summary.get('high_priority_count', 0)}`")
+    lines.append(f"- Alert candidates: `{summary.get('alert_candidate_count', 0)}`")
     lines.append("")
 
     lines.append("### Interpretation")
@@ -389,7 +702,7 @@ def render_report_markdown(report: dict[str, Any]) -> str:
         lines.append("")
     else:
         for i, item in enumerate(top_news, start=1):
-            factor = infer_report_factor(item)
+            factor = item.get("factor") or infer_report_factor(item)
             score = compute_basic_news_score(item)
             lines.append(f"### {i}. {item.get('title', 'Untitled')}")
             lines.append("")
@@ -401,51 +714,54 @@ def render_report_markdown(report: dict[str, Any]) -> str:
             lines.append(f"- Factor: `{factor}`")
             lines.append(f"- Source: `{item.get('source', '')}`")
             lines.append(f"- Score: `{score}`")
+            lines.append(f"- Direction: `{item.get('direction', 'N/A')}`")
+            lines.append(f"- Market confirmation: `{item.get('market_confirmation', 'N/A')}`")
+            lines.append(f"- Market score: `{item.get('market_score', 0)}`")
+            lines.append(f"- Final priority: `{item.get('final_priority', 'N/A')}`")
+            lines.append(f"- Final score: `{item.get('final_score', score)}`")
+            lines.append(f"- Alert candidate: `{'Yes' if item.get('alert_candidate') else 'No'}`")
+
+            evidence = item.get("market_evidence", [])
+            if evidence:
+                lines.append("- Market evidence:")
+                for evidence_item in evidence:
+                    lines.append(f"  - {evidence_item}")
             lines.append("")
             lines.append(str(item.get("summary", "")))
             lines.append("")
 
-    if is_alert_check:
-        lines.append("## 4. Alert Status")
-        lines.append("")
-
-        if not top_news:
-            lines.append("No critical intraday macro alert detected in the current alert-check window.")
+        if is_alert_check:
+            lines.append("## 4. Alert Status")
             lines.append("")
+
+            if not top_news:
+                lines.append("No critical intraday macro alert detected in the current alert-check window.")
+                lines.append("")
+            else:
+                lines.append("Potential intraday alert candidates detected.")
+                lines.append("")
+
+            flags = report.get("macro_regime", {}).get("flags", [])
+            if flags:
+                lines.append("Current background macro flags remain:")
+                for flag in flags:
+                    lines.append(f"- {flag}")
+                lines.append("")
+
         else:
-            lines.append("Potential intraday alert candidates detected.")
+            lines.append("## 4. Validated Context")
             lines.append("")
 
-        flags = report.get("macro_regime", {}).get("flags", [])
-        if flags:
-            lines.append("Current background macro flags remain:")
-            for flag in flags:
-                lines.append(f"- {flag}")
-            lines.append("")
+            context = report.get("validated_context", [])
 
-    else:
-        lines.append("## 4. Validated Context")
-        lines.append("")
+            if not context:
+                lines.append("No validated macro context available.")
+                lines.append("")
+            else:
+                for i, item in enumerate(context, start=1):
+                    lines.append(f"- **{item.get('title', 'Untitled')}** — {item.get('summary', '')}")
 
-        context = report.get("validated_context", [])
-
-        if not context:
-            lines.append("No validated macro context available.")
-            lines.append("")
-        else:
-            for i, item in enumerate(context, start=1):
-                lines.append(f"- **{item.get('title', 'Untitled')}** — {item.get('summary', '')}")
-
-    context = report.get("validated_context", [])
-
-    if not context:
-        lines.append("No validated macro context available.")
-        lines.append("")
-    else:
-        for i, item in enumerate(context, start=1):
-            lines.append(f"- **{item.get('title', 'Untitled')}** — {item.get('summary', '')}")
-
-    return "\n".join(lines)
+        return "\n".join(lines)
 
 
 def save_report(report: dict[str, Any]) -> tuple[Path, Path]:
