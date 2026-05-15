@@ -48,5 +48,27 @@
     "url": "",
     "default_importance": "Medium",
     "tags": ["Risk Sentiment", "Equity", "Risk-On", "Risk-Off"]
+  },
+
+  {
+    "source_id": "fed_press_releases",
+    "name": "Federal Reserve Press Releases",
+    "type": "rss",
+    "category": "Central Banks",
+    "enabled": false,
+    "url": "https://www.federalreserve.gov/feeds/press_all.xml",
+    "default_importance": "High",
+    "tags": ["Fed", "Central Banks", "Rates", "Monetary Policy"]
+  },
+  {
+    "source_id": "ecb_press_releases",
+    "name": "ECB Press Releases",
+    "type": "rss",
+    "category": "Central Banks",
+    "enabled": true,
+    "url": "https://www.ecb.europa.eu/rss/press.html",
+    "default_importance": "High",
+    "tags": ["ECB", "Central Banks", "Rates", "Eurozone"]
   }
 ]
+
