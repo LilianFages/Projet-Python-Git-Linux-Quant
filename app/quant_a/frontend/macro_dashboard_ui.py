@@ -26,9 +26,10 @@ from app.common.macro import (
 def load_macro_dashboard_data_cached(
     start_date,
     end_date,
-    context_days: int,
+    validated_context_days: int,
+    live_news_days: int,
     refresh_key: int = 0,
-) -> dict[str, Any]:
+):
     """
     Charge les données du Macro Dashboard avec cache Streamlit.
 
@@ -43,7 +44,7 @@ def load_macro_dashboard_data_cached(
     macro_events_recent = filter_recent_macro_context(
         events=macro_events_all,
         reference_date=datetime.now(),
-        days=int(context_days),
+        days=int(validated_context_days),
     )
     macro_context_summary = build_macro_context_summary(macro_events_recent)
 
@@ -51,14 +52,14 @@ def load_macro_dashboard_data_cached(
     macro_news_recent = filter_recent_macro_news(
         news=macro_news_all,
         reference_date=datetime.now(),
-        days=int(context_days),
+        days=int(live_news_days),
     )
 
     macro_news_inbox_all = load_macro_news_inbox()
     macro_news_inbox_recent = filter_recent_macro_news(
         news=macro_news_inbox_all,
         reference_date=datetime.now(),
-        days=int(context_days),
+        days=int(live_news_days),
     )
 
     return {
@@ -94,11 +95,18 @@ def render():
             help="Window used to compute returns, realized volatility and moving averages.",
         )
 
-        context_days = st.selectbox(
-            "Manual macro context window",
-            options=[3, 7, 14, 30],
-            index=0,
+        validated_context_days = st.selectbox(
+            "Validated context window",
+            options=[7, 14, 30, 60, 90],
+            index=2,
             help="Number of recent days loaded from reports/data/macro_context.json.",
+        )
+
+        live_news_days = st.selectbox(
+            "Live news window",
+            options=[1, 3, 7, 14, 30],
+            index=1,
+            help="Number of recent days loaded from reports/data/macro_news.json.",
         )
 
         st.markdown("#### Macro Events Filters")
@@ -154,7 +162,8 @@ def render():
         macro_data = load_macro_dashboard_data_cached(
             start_date=start_date,
             end_date=end_date,
-            context_days=int(context_days),
+            validated_context_days=int(validated_context_days),
+            live_news_days=int(live_news_days),
             refresh_key=st.session_state.get("macro_refresh_key", 0),
         )
 
@@ -205,7 +214,10 @@ def render():
     ok_count = int((macro_df["status"] == "ok").sum()) if "status" in macro_df.columns else 0
     total_count = len(macro_df)
 
-    st.caption(f"Last refresh: {loaded_at} · Lookback: {lookback_days}d")
+    st.caption(
+        f"Last refresh: {loaded_at} · Lookback: {lookback_days}d · "
+        f"Live news: {live_news_days}d · Context: {validated_context_days}d"
+    )
 
     # ---------------------------------------------------------------------
     # 1. Key Takeaways
@@ -1813,7 +1825,7 @@ def render_macro_events_center(
             with left:
                 render_event_cards_scrollable(
                     events=news,
-                    title="Recent Macro News",
+                    title="Live Macro News",
                     height=560,
                 )
 
