@@ -509,6 +509,67 @@ def fetch_calendar_macro_events() -> list[dict[str, Any]]:
     """
     return []
 
+def text_matches_keywords(text: str, keywords: list[Any]) -> bool:
+    """
+    Vérifie si au moins un keyword est présent dans le texte.
+    Si la liste est vide, retourne True.
+    """
+    if not keywords:
+        return True
+
+    text_lower = str(text or "").lower()
+
+    for keyword in keywords:
+        if str(keyword or "").lower() in text_lower:
+            return True
+
+    return False
+
+
+def text_excludes_keywords(text: str, keywords: list[Any]) -> bool:
+    """
+    Vérifie qu'aucun keyword d'exclusion n'est présent dans le texte.
+    Si la liste est vide, retourne True.
+    """
+    if not keywords:
+        return True
+
+    text_lower = str(text or "").lower()
+
+    for keyword in keywords:
+        if str(keyword or "").lower() in text_lower:
+            return False
+
+    return True
+
+
+def rss_item_is_relevant(item: dict[str, Any], source: dict[str, Any]) -> bool:
+    """
+    Filtre une news RSS selon les include/exclude keywords de la source.
+    """
+    include_keywords = source.get("include_keywords", [])
+    exclude_keywords = source.get("exclude_keywords", [])
+
+    if not isinstance(include_keywords, list):
+        include_keywords = []
+
+    if not isinstance(exclude_keywords, list):
+        exclude_keywords = []
+
+    text = " ".join([
+        str(item.get("title", "")),
+        str(item.get("summary", "")),
+        " ".join(str(tag) for tag in item.get("tags", []) if isinstance(tag, str)),
+    ])
+
+    if not text_matches_keywords(text, include_keywords):
+        return False
+
+    if not text_excludes_keywords(text, exclude_keywords):
+        return False
+
+    return True
+
 def fetch_rss_macro_news() -> list[dict[str, Any]]:
     """
     Récupère les news depuis les flux RSS activés dans macro_news_sources.json.
@@ -539,11 +600,29 @@ def fetch_rss_macro_news() -> list[dict[str, Any]]:
             parsed_feed = feedparser.parse(url)
             entries = getattr(parsed_feed, "entries", [])
 
+            max_items = source.get("max_items", 20)
+
+            try:
+                max_items = int(max_items)
+            except Exception:
+                max_items = 20
+
+            kept_for_source = 0
+
             for entry in entries:
+                if kept_for_source >= max_items:
+                    break
+
                 item = rss_entry_to_macro_news(entry, source)
 
-                if is_valid_news_item(item):
-                    output.append(item)
+                if not is_valid_news_item(item):
+                    continue
+
+                if not rss_item_is_relevant(item, source):
+                    continue
+
+                output.append(item)
+                kept_for_source += 1
 
         except Exception as exc:
             print(
