@@ -34,6 +34,7 @@ def find_repo_root() -> Path:
 REPO_ROOT = find_repo_root()
 MACRO_CONTEXT_PATH = REPO_ROOT / "reports" / "data" / "macro_context.json"
 MACRO_NEWS_PATH = REPO_ROOT / "reports" / "data" / "macro_news.json"
+MACRO_NEWS_INBOX_PATH = REPO_ROOT / "reports" / "data" / "macro_news_inbox.json"
 
 
 # ------------------------------------------------------------
@@ -1099,6 +1100,32 @@ def load_macro_news(path: str | Path | None = None) -> list[dict[str, Any]]:
             return []
 
         with open(news_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if not isinstance(data, list):
+            return []
+
+        return [item for item in data if isinstance(item, dict)]
+
+    except Exception:
+        return []
+    
+def load_macro_news_inbox(path: str | Path | None = None) -> list[dict[str, Any]]:
+    """
+    Charge les news en attente depuis reports/data/macro_news_inbox.json.
+
+    Ne casse jamais l'application :
+    - fichier absent -> []
+    - JSON invalide -> []
+    - mauvais format -> []
+    """
+    inbox_path = Path(path) if path is not None else MACRO_NEWS_INBOX_PATH
+
+    try:
+        if not inbox_path.exists():
+            return []
+
+        with open(inbox_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         if not isinstance(data, list):

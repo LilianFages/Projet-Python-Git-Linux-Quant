@@ -19,6 +19,7 @@ from app.common.macro import (
     filter_recent_macro_news,
     macro_pct,
     macro_num,
+    load_macro_news_inbox,
 )
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -53,6 +54,13 @@ def load_macro_dashboard_data_cached(
         days=int(context_days),
     )
 
+    macro_news_inbox_all = load_macro_news_inbox()
+    macro_news_inbox_recent = filter_recent_macro_news(
+        news=macro_news_inbox_all,
+        reference_date=datetime.now(),
+        days=int(context_days),
+    )
+
     return {
         "macro_df": macro_df,
         "macro_regime": macro_regime,
@@ -60,6 +68,9 @@ def load_macro_dashboard_data_cached(
         "macro_events_recent": macro_events_recent,
         "macro_context_summary": macro_context_summary,
         "macro_news_recent": macro_news_recent,
+        "macro_news_all": macro_news_all,
+        "macro_news_inbox_all": macro_news_inbox_all,
+        "macro_news_inbox_recent": macro_news_inbox_recent,
         "loaded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "refresh_key": refresh_key,
     }
@@ -154,6 +165,9 @@ def render():
     macro_context_summary = macro_data["macro_context_summary"]
     loaded_at = macro_data["loaded_at"]
     macro_news_recent = macro_data["macro_news_recent"]
+    macro_news_all = macro_data["macro_news_all"]
+    macro_news_inbox_all = macro_data["macro_news_inbox_all"]
+    macro_news_inbox_recent = macro_data["macro_news_inbox_recent"]
 
     macro_events_dashboard = filter_macro_events_for_dashboard(
         events=macro_events_recent,
@@ -304,6 +318,13 @@ def render():
         events=macro_events_dashboard,
         news=macro_news_dashboard,
         macro_regime=macro_regime,
+    )
+
+    render_news_pipeline_status(
+        validated_events=macro_events_recent,
+        published_news_all=macro_news_all,
+        inbox_news_all=macro_news_inbox_all,
+        inbox_news_recent=macro_news_inbox_recent,
     )
 
     # ---------------------------------------------------------------------
@@ -2055,3 +2076,70 @@ def render_event_impact_board(
         st.markdown("#### Impact Summary")
         for line in summarize_event_factor_pressure(impact_df):
             st.markdown(f"- {line}")
+
+# ---------------------------------------------------------------------
+# Macro News Pipeline Status — Macro Dashboard V2.5-L
+# ---------------------------------------------------------------------
+def latest_item_date(items: list[dict[str, Any]]) -> str:
+    """
+    Retourne la date la plus récente d'une liste d'items.
+    """
+    if not items:
+        return "—"
+
+    dates = []
+
+    for item in items:
+        try:
+            dates.append(pd.to_datetime(item.get("date")).date())
+        except Exception:
+            continue
+
+    if not dates:
+        return "—"
+
+    return max(dates).isoformat()
+
+
+def render_news_pipeline_status(
+    validated_events: list[dict[str, Any]],
+    published_news_all: list[dict[str, Any]],
+    inbox_news_all: list[dict[str, Any]],
+    inbox_news_recent: list[dict[str, Any]],
+) -> None:
+    """
+    Affiche un statut compact du pipeline de news macro.
+    """
+    st.subheader("News Pipeline Status")
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    with c1:
+        render_compact_card(
+            title="Validated Context",
+            value=str(len(validated_events or [])),
+            subtitle=f"Latest: {latest_item_date(validated_events or [])}",
+        )
+
+    with c2:
+        render_compact_card(
+            title="Published News",
+            value=str(len(published_news_all or [])),
+            subtitle=f"Latest: {latest_item_date(published_news_all or [])}",
+        )
+
+    with c3:
+        render_compact_card(
+            title="Inbox Staged",
+            value=str(len(inbox_news_all or [])),
+            subtitle=f"Recent: {len(inbox_news_recent or [])}",
+        )
+
+    with c4:
+        status = "Ready" if len(inbox_news_all or []) == 0 else "Pending"
+        subtitle = "No staged news" if status == "Ready" else "Run fetch_macro_news.py to publish"
+        render_compact_card(
+            title="Pipeline Status",
+            value=status,
+            subtitle=subtitle,
+        )
