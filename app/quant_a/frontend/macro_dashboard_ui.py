@@ -1813,18 +1813,245 @@ def render_macro_events_center(
         for line in build_event_impact_summary(combined, macro_regime):
             st.markdown(f"- {line}")
 
-        if combined:
-            combined_df = pd.DataFrame(combined)
+        render_event_impact_board(
+            validated_events=events,
+            news_events=news,
+        )
 
-            display_cols = ["date", "category", "importance", "title", "source"]
-            for col in display_cols:
-                if col not in combined_df.columns:
-                    combined_df[col] = ""
+# ---------------------------------------------------------------------
+# Macro News Impact Scoring — Macro Dashboard V2.5-E
+# ---------------------------------------------------------------------
+def infer_event_factor(event: dict[str, Any]) -> str:
+    """
+    Associe un événement/news à un facteur macro principal.
+    Basé sur category, title, summary et tags.
+    """
+    category = str(event.get("category", "")).lower()
+    title = str(event.get("title", "")).lower()
+    summary = str(event.get("summary", "")).lower()
+    tags = " ".join(str(x).lower() for x in event.get("tags", []) if isinstance(x, str))
 
-            st.markdown("#### Combined Event Table")
-            st.dataframe(
-                combined_df[display_cols],
-                use_container_width=True,
-                hide_index=True,
-                height=300,
-            )
+    text = f"{category} {title} {summary} {tags}"
+
+    if any(k in text for k in ["fed", "ecb", "yield", "yields", "rates", "rate", "bond", "treasury", "bund"]):
+        return "Rates Pressure"
+
+    if any(k in text for k in ["dollar", "dxy", "eur/usd", "usd/jpy", "fx", "currency"]):
+        return "Dollar Strength"
+
+    if any(k in text for k in ["oil", "brent", "wti", "gas", "natural gas", "copper", "commodity", "commodities"]):
+        return "Commodity Pressure"
+
+    if any(k in text for k in ["cpi", "pce", "ppi", "inflation", "prices"]):
+        return "Inflation Pressure"
+
+    if any(k in text for k in ["geopolitical", "war", "conflict", "sanction", "opec"]):
+        return "Geopolitical Risk"
+
+    if any(k in text for k in ["earnings", "big tech", "nasdaq", "growth", "ai", "technology"]):
+        return "Risk Appetite"
+
+    if any(k in text for k in ["gdp", "pmi", "nfp", "jobs", "employment", "retail sales", "growth slowdown"]):
+        return "Growth Risk"
+
+    if any(k in text for k in ["risk sentiment", "risk-on", "risk-off", "equity", "equities", "stocks"]):
+        return "Risk Appetite"
+
+    return "Macro"
+
+
+def infer_event_direction(event: dict[str, Any], factor: str) -> str:
+    """
+    Déduit une direction qualitative simple.
+    """
+    title = str(event.get("title", "")).lower()
+    summary = str(event.get("summary", "")).lower()
+    text = f"{title} {summary}"
+
+    positive_words = [
+        "supported",
+        "positive",
+        "strong",
+        "higher",
+        "rising",
+        "up",
+        "firm",
+        "constructive",
+        "resilient",
+    ]
+
+    negative_words = [
+        "pressure",
+        "weaker",
+        "lower",
+        "falling",
+        "down",
+        "risk-off",
+        "concern",
+        "stress",
+        "slowdown",
+        "hawkish",
+    ]
+
+    pos = sum(1 for word in positive_words if word in text)
+    neg = sum(1 for word in negative_words if word in text)
+
+    if factor in {"Rates Pressure", "Dollar Strength", "Commodity Pressure", "Inflation Pressure", "Geopolitical Risk", "Growth Risk"}:
+        if pos > neg:
+            return "Pressure Up"
+        if neg > pos:
+            return "Pressure Down"
+        return "Mixed"
+
+    if factor == "Risk Appetite":
+        if pos > neg:
+            return "Supportive"
+        if neg > pos:
+            return "Negative"
+        return "Mixed"
+
+    return "Mixed"
+
+
+def importance_to_score(importance: Any) -> int:
+    """
+    Convertit l'importance en score numérique.
+    """
+    importance = str(importance or "").strip()
+
+    if importance == "High":
+        return 3
+    if importance == "Medium":
+        return 2
+    if importance == "Low":
+        return 1
+
+    return 1
+
+
+def prepare_event_impact_board(
+    validated_events: list[dict[str, Any]],
+    news_events: list[dict[str, Any]],
+) -> pd.DataFrame:
+    """
+    Prépare un tableau combiné d'impact macro events/news.
+    """
+    combined = []
+
+    for event in validated_events or []:
+        item = dict(event)
+        item["_type"] = "Validated"
+        combined.append(item)
+
+    for event in news_events or []:
+        item = dict(event)
+        item["_type"] = "News"
+        combined.append(item)
+
+    if not combined:
+        return pd.DataFrame()
+
+    rows = []
+
+    for event in combined:
+        factor = infer_event_factor(event)
+        direction = infer_event_direction(event, factor)
+        importance = event.get("importance", "Low")
+        impact_score = importance_to_score(importance)
+
+        rows.append({
+            "Type": event.get("_type", ""),
+            "Date": event.get("date", ""),
+            "Importance": importance,
+            "Category": event.get("category", "Macro"),
+            "Factor": factor,
+            "Direction": direction,
+            "Impact Score": impact_score,
+            "Title": event.get("title", ""),
+            "Source": event.get("source", ""),
+        })
+
+    df = pd.DataFrame(rows)
+
+    if df.empty:
+        return df
+
+    df = df.sort_values(
+        ["Impact Score", "Date"],
+        ascending=[False, False],
+    ).reset_index(drop=True)
+
+    return df
+
+
+def summarize_event_factor_pressure(event_impact_df: pd.DataFrame) -> list[str]:
+    """
+    Résume les facteurs les plus représentés dans les événements/news.
+    """
+    if event_impact_df is None or event_impact_df.empty:
+        return ["No event impact data available."]
+
+    lines = []
+
+    factor_counts = (
+        event_impact_df
+        .groupby("Factor")["Impact Score"]
+        .sum()
+        .sort_values(ascending=False)
+    )
+
+    if not factor_counts.empty:
+        top_factor = factor_counts.index[0]
+        top_score = factor_counts.iloc[0]
+        lines.append(f"Top event-driven factor: {top_factor} with impact score {int(top_score)}.")
+
+    high_events = event_impact_df[event_impact_df["Importance"] == "High"]
+
+    if not high_events.empty:
+        lines.append(f"{len(high_events)} high-importance event(s) are currently active.")
+
+    pressure_events = event_impact_df[
+        event_impact_df["Direction"].isin(["Pressure Up", "Negative"])
+    ]
+
+    if not pressure_events.empty:
+        lines.append(f"{len(pressure_events)} event(s) point to adverse macro pressure.")
+
+    supportive_events = event_impact_df[
+        event_impact_df["Direction"].isin(["Supportive", "Pressure Down"])
+    ]
+
+    if not supportive_events.empty:
+        lines.append(f"{len(supportive_events)} event(s) appear supportive or pressure-reducing.")
+
+    return lines[:4]
+
+
+def render_event_impact_board(
+    validated_events: list[dict[str, Any]],
+    news_events: list[dict[str, Any]],
+) -> None:
+    """
+    Affiche un board d'impact pour les événements/news macro.
+    """
+    impact_df = prepare_event_impact_board(validated_events, news_events)
+
+    if impact_df.empty:
+        st.info("No event impact board available.")
+        return
+
+    left, right = st.columns([1.1, 1])
+
+    with left:
+        st.markdown("#### Impact Board")
+        st.dataframe(
+            impact_df,
+            use_container_width=True,
+            hide_index=True,
+            height=320,
+        )
+
+    with right:
+        st.markdown("#### Impact Summary")
+        for line in summarize_event_factor_pressure(impact_df):
+            st.markdown(f"- {line}")
