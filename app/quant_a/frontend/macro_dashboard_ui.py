@@ -1779,9 +1779,11 @@ def render_macro_events_center(
             left, right = st.columns([1.15, 1])
 
             with left:
-                st.markdown("#### Recent Validated Events")
-                for event in events:
-                    render_event_card(event)
+                render_event_cards_scrollable(
+                    events=events,
+                    title="Recent Validated Events",
+                    height=560,
+                )
 
             with right:
                 st.markdown("#### Validated Event Table")
@@ -1807,9 +1809,11 @@ def render_macro_events_center(
             left, right = st.columns([1.15, 1])
 
             with left:
-                st.markdown("#### Recent Macro News")
-                for item in news:
-                    render_event_card(item)
+                render_event_cards_scrollable(
+                    events=news,
+                    title="Recent Macro News",
+                    height=560,
+                )
 
             with right:
                 st.markdown("#### News Table")
@@ -2143,3 +2147,24 @@ def render_news_pipeline_status(
             value=status,
             subtitle=subtitle,
         )
+
+def render_event_cards_scrollable(
+    events: list[dict[str, Any]],
+    title: str,
+    height: int = 560,
+) -> None:
+    """
+    Affiche une liste d'events/news dans une zone scrollable.
+
+    height=560 permet d'afficher environ 4 cartes visibles,
+    puis une scrollbar verticale apparaît.
+    """
+    st.markdown(f"#### {title}")
+
+    if not events:
+        st.info("No item available.")
+        return
+
+    with st.container(height=height, border=False):
+        for event in events:
+            render_event_card(event)
