@@ -1,1 +1,53 @@
-[]
+[
+  {
+    "date": "2026-04-29",
+    "category": "Central Banks",
+    "importance": "High",
+    "title": "Federal Reserve issues FOMC statement",
+    "summary": "Federal Reserve issues FOMC statement",
+    "source": "Federal Reserve Press Releases",
+    "url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20260429a.htm",
+    "tickers": [],
+    "tags": [
+      "Fed",
+      "Central Banks",
+      "Rates",
+      "Monetary Policy"
+    ],
+    "news_id": "6139100ec40faaed"
+  },
+  {
+    "date": "2026-04-14",
+    "category": "Central Banks",
+    "importance": "Medium",
+    "title": "Minutes of the Board’s discount rate meetings on February 9 and March 18, 2026",
+    "summary": "Minutes of the Board’s discount rate meetings on February 9 and March 18, 2026",
+    "source": "Federal Reserve Press Releases",
+    "url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20260414a.htm",
+    "tickers": [],
+    "tags": [
+      "Fed",
+      "Central Banks",
+      "Rates",
+      "Monetary Policy"
+    ],
+    "news_id": "05bc0381d778d845"
+  },
+  {
+    "date": "2026-04-08",
+    "category": "Central Banks",
+    "importance": "Medium",
+    "title": "Minutes of the Federal Open Market Committee, March 17–18, 2026",
+    "summary": "Minutes of the Federal Open Market Committee, March 17–18, 2026",
+    "source": "Federal Reserve Press Releases",
+    "url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20260408a.htm",
+    "tickers": [],
+    "tags": [
+      "Fed",
+      "Central Banks",
+      "Rates",
+      "Monetary Policy"
+    ],
+    "news_id": "84c484e7df71aac2"
+  }
+]

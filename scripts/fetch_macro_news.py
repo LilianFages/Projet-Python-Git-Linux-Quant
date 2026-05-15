@@ -546,6 +546,14 @@ def text_excludes_keywords(text: str, keywords: list[Any]) -> bool:
 def rss_item_is_relevant(item: dict[str, Any], source: dict[str, Any]) -> bool:
     """
     Filtre une news RSS selon les include/exclude keywords de la source.
+
+    Important :
+    On filtre uniquement sur le contenu réel de la news :
+    - title
+    - summary
+
+    On n'utilise pas les tags de source pour le filtrage, car ils peuvent créer
+    de faux positifs permanents.
     """
     include_keywords = source.get("include_keywords", [])
     exclude_keywords = source.get("exclude_keywords", [])
@@ -559,16 +567,94 @@ def rss_item_is_relevant(item: dict[str, Any], source: dict[str, Any]) -> bool:
     text = " ".join([
         str(item.get("title", "")),
         str(item.get("summary", "")),
-        " ".join(str(tag) for tag in item.get("tags", []) if isinstance(tag, str)),
     ])
-
-    if not text_matches_keywords(text, include_keywords):
-        return False
 
     if not text_excludes_keywords(text, exclude_keywords):
         return False
 
+    if not text_matches_keywords(text, include_keywords):
+        return False
+
     return True
+
+def infer_rss_importance(item: dict[str, Any], source: dict[str, Any]) -> str:
+    """
+    Infère l'importance d'une news RSS à partir de son contenu.
+
+    Priorité :
+    - High : décisions monétaires, inflation, FOMC/ECB policy, projections
+    - Medium : discours, outlook, stabilité financière, marchés
+    - Low : administratif, technique, supervision, nominations
+    """
+    default_importance = normalize_importance(source.get("default_importance", "Medium"))
+
+    text = " ".join([
+        str(item.get("title", "")),
+        str(item.get("summary", "")),
+        " ".join(str(tag) for tag in item.get("tags", []) if isinstance(tag, str)),
+    ]).lower()
+
+    high_keywords = [
+        "fomc",
+        "federal funds",
+        "interest rate decision",
+        "interest rates",
+        "monetary policy decision",
+        "monetary policy statement",
+        "policy rate",
+        "deposit facility",
+        "main refinancing operations",
+        "inflation",
+        "cpi",
+        "pce",
+        "economic projections",
+        "summary of economic projections",
+        "dot plot",
+        "powell",
+        "lagarde",
+        "press conference",
+    ]
+
+    medium_keywords = [
+        "speech",
+        "remarks",
+        "testimony",
+        "economic outlook",
+        "outlook",
+        "financial stability",
+        "treasury yields",
+        "yields",
+        "labour market",
+        "labor market",
+        "growth",
+        "euro area economy",
+        "market operations",
+    ]
+
+    low_keywords = [
+        "appointment",
+        "appoints",
+        "technical",
+        "operational",
+        "supervisory",
+        "consultation",
+        "sanction",
+        "enforcement action",
+        "civil money penalty",
+        "bank holding company",
+        "termination",
+    ]
+
+    if any(keyword in text for keyword in low_keywords):
+        return "Low"
+
+    if any(keyword in text for keyword in high_keywords):
+        return "High"
+
+    if any(keyword in text for keyword in medium_keywords):
+        return "Medium"
+
+    return default_importance
 
 def fetch_rss_macro_news() -> list[dict[str, Any]]:
     """
@@ -620,6 +706,8 @@ def fetch_rss_macro_news() -> list[dict[str, Any]]:
 
                 if not rss_item_is_relevant(item, source):
                     continue
+
+                item["importance"] = infer_rss_importance(item, source)
 
                 output.append(item)
                 kept_for_source += 1
