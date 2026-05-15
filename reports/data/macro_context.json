@@ -20,7 +20,7 @@
     "category": "Commodities",
     "importance": "Medium",
     "title": "Energy prices monitored for inflation pressure",
-    "summary": "Oil and natural gas moves remain relevant for inflation expectations and cross-asset risk sentiment.",
+    "summary": "Oil and gas prices remain relevant inputs for inflation expectations and commodity-linked market pressure.",
     "source": "manual"
   },
   {
@@ -28,7 +28,7 @@
     "category": "FX",
     "importance": "Medium",
     "title": "Dollar strength remains a portfolio risk factor",
-    "summary": "A stronger dollar can affect international assets, commodities and companies with foreign currency exposure.",
+    "summary": "Dollar moves remain important for global risk appetite, commodities and foreign earnings translation.",
     "source": "manual"
   }
 ]

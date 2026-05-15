@@ -75,5 +75,16 @@
     "url": "",
     "tickers": ["^GSPC", "^IXIC", "BTC-USD"],
     "tags": ["Risk-On", "Equity", "Crypto", "Momentum"]
+  },
+  {
+    "date": "YYYY-MM-DD",
+    "category": "FX",
+    "importance": "Medium",
+    "title": "Dollar moves remain important for cross-asset risk",
+    "summary": "Dollar strength or weakness can affect commodities, global equities and foreign earnings translation.",
+    "source": "manual",
+    "url": "",
+    "tickers": ["DX-Y.NYB", "EURUSD=X", "JPY=X"],
+    "tags": ["Dollar", "DXY", "FX", "Risk Sentiment"]
   }
 ]

@@ -1,33 +1,54 @@
 [
   {
-    "source_id": "central_banks_placeholder",
-    "name": "Central Banks Feed Placeholder",
+    "source_id": "fed_press_releases",
+    "name": "Federal Reserve Press Releases",
     "type": "rss",
     "category": "Central Banks",
     "enabled": false,
-    "url": "",
+    "url": "https://www.federalreserve.gov/feeds/press_all.xml",
     "default_importance": "High",
-    "tags": ["Central Banks", "Fed", "ECB", "Rates"]
+    "tags": ["Fed", "Central Banks", "Rates", "Monetary Policy"],
+    "include_keywords": [
+      "federal funds",
+      "monetary policy",
+      "interest rate",
+      "inflation",
+      "economic outlook",
+      "FOMC",
+      "Powell"
+    ],
+    "exclude_keywords": [
+      "enforcement action",
+      "civil money penalty",
+      "bank holding company",
+      "termination"
+    ],
+    "max_items": 10
   },
   {
-    "source_id": "inflation_placeholder",
-    "name": "Inflation Data Feed Placeholder",
+    "source_id": "ecb_press_releases",
+    "name": "ECB Press Releases",
     "type": "rss",
-    "category": "Inflation Data",
+    "category": "Central Banks",
     "enabled": false,
-    "url": "",
+    "url": "https://www.ecb.europa.eu/rss/press.html",
     "default_importance": "High",
-    "tags": ["Inflation", "CPI", "PCE", "PPI", "Rates"]
-  },
-  {
-    "source_id": "rates_placeholder",
-    "name": "Rates Feed Placeholder",
-    "type": "rss",
-    "category": "Rates",
-    "enabled": false,
-    "url": "",
-    "default_importance": "Medium",
-    "tags": ["Rates", "Treasury", "Yields", "Bonds"]
+    "tags": ["ECB", "Central Banks", "Rates", "Eurozone"],
+    "include_keywords": [
+      "monetary policy",
+      "interest rates",
+      "inflation",
+      "economic outlook",
+      "deposit facility",
+      "Lagarde"
+    ],
+    "exclude_keywords": [
+      "supervisory",
+      "sanction",
+      "consultation",
+      "appointment"
+    ],
+    "max_items": 10
   },
   {
     "source_id": "commodities_placeholder",
@@ -37,7 +58,10 @@
     "enabled": false,
     "url": "",
     "default_importance": "Medium",
-    "tags": ["Oil", "Gas", "Commodities", "Inflation Pressure"]
+    "tags": ["Oil", "Gas", "Commodities", "Inflation Pressure"],
+    "include_keywords": [],
+    "exclude_keywords": [],
+    "max_items": 10
   },
   {
     "source_id": "risk_sentiment_placeholder",
@@ -47,28 +71,9 @@
     "enabled": false,
     "url": "",
     "default_importance": "Medium",
-    "tags": ["Risk Sentiment", "Equity", "Risk-On", "Risk-Off"]
-  },
-
-  {
-    "source_id": "fed_press_releases",
-    "name": "Federal Reserve Press Releases",
-    "type": "rss",
-    "category": "Central Banks",
-    "enabled": false,
-    "url": "https://www.federalreserve.gov/feeds/press_all.xml",
-    "default_importance": "High",
-    "tags": ["Fed", "Central Banks", "Rates", "Monetary Policy"]
-  },
-  {
-    "source_id": "ecb_press_releases",
-    "name": "ECB Press Releases",
-    "type": "rss",
-    "category": "Central Banks",
-    "enabled": true,
-    "url": "https://www.ecb.europa.eu/rss/press.html",
-    "default_importance": "High",
-    "tags": ["ECB", "Central Banks", "Rates", "Eurozone"]
+    "tags": ["Risk Sentiment", "Equity", "Risk-On", "Risk-Off"],
+    "include_keywords": [],
+    "exclude_keywords": [],
+    "max_items": 10
   }
 ]
-
