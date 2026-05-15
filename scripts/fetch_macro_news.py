@@ -263,29 +263,106 @@ def sort_news(news: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 # ------------------------------------------------------------
-# Future extension point
+# External source adapters
 # ------------------------------------------------------------
-def fetch_external_macro_news() -> list[dict[str, Any]]:
+def fetch_manual_source_news() -> list[dict[str, Any]]:
     """
-    Extension future.
+    Source manuelle structurée.
 
-    Pour l'instant, on ne branche pas d'API externe.
-    À terme, cette fonction pourra récupérer des news depuis :
-    - API économique ;
-    - API news ;
-    - calendrier macro ;
-    - flux RSS fiable ;
-    - source interne.
+    Pour l'instant, les entrées manuelles passent par :
+    - macro_news_inbox.json ;
+    - la commande CLI `add`.
 
-    Elle doit retourner une liste de dictionnaires au format macro_news.
+    Cette fonction reste disponible si on veut plus tard lire un autre fichier manuel.
     """
     return []
+
+
+def fetch_rss_macro_news() -> list[dict[str, Any]]:
+    """
+    Extension future : récupération de news depuis un ou plusieurs flux RSS fiables.
+
+    Exemple futur :
+    - banques centrales ;
+    - calendrier économique ;
+    - flux commodities ;
+    - flux macro généraliste.
+
+    La fonction devra retourner une liste de dictionnaires au format macro_news.
+    """
+    return []
+
+
+def fetch_api_macro_news() -> list[dict[str, Any]]:
+    """
+    Extension future : récupération de news depuis une API externe.
+
+    La logique attendue :
+    - appel API ;
+    - filtrage par mots-clés macro ;
+    - normalisation vers le format macro_news ;
+    - scoring d'importance ;
+    - déduplication par le pipeline principal.
+    """
+    return []
+
+
+def fetch_calendar_macro_events() -> list[dict[str, Any]]:
+    """
+    Extension future : récupération d'événements de calendrier macro.
+
+    Exemples :
+    - CPI ;
+    - PCE ;
+    - NFP ;
+    - PMI ;
+    - GDP ;
+    - décisions Fed / ECB.
+
+    La fonction devra convertir les événements calendrier en items macro_news.
+    """
+    return []
+
+
+def fetch_external_macro_news(
+    use_manual: bool = True,
+    use_rss: bool = False,
+    use_api: bool = False,
+    use_calendar: bool = False,
+) -> list[dict[str, Any]]:
+    """
+    Agrège les futures sources externes de news macro.
+
+    Pour l'instant, toutes les sources externes retournent [].
+    Cette fonction sert de point d'entrée unique pour le pipeline.
+    """
+    news: list[dict[str, Any]] = []
+
+    if use_manual:
+        news.extend(fetch_manual_source_news())
+
+    if use_rss:
+        news.extend(fetch_rss_macro_news())
+
+    if use_api:
+        news.extend(fetch_api_macro_news())
+
+    if use_calendar:
+        news.extend(fetch_calendar_macro_events())
+
+    return news
 
 
 # ------------------------------------------------------------
 # Main pipeline
 # ------------------------------------------------------------
-def run(clear_inbox: bool = True, dry_run: bool = False) -> dict[str, Any]:
+def run(
+    clear_inbox: bool = True,
+    dry_run: bool = False,
+    use_rss: bool = False,
+    use_api: bool = False,
+    use_calendar: bool = False,
+) -> dict[str, Any]:
     """
     Pipeline principal :
     - charge les news existantes ;
@@ -300,7 +377,12 @@ def run(clear_inbox: bool = True, dry_run: bool = False) -> dict[str, Any]:
     """
     existing_news = load_json_list(MACRO_NEWS_PATH)
     inbox_news = load_json_list(MACRO_NEWS_INBOX_PATH)
-    fetched_news = fetch_external_macro_news()
+    fetched_news = fetch_external_macro_news(
+        use_manual=True,
+        use_rss=use_rss,
+        use_api=use_api,
+        use_calendar=use_calendar,
+    )
 
     raw_news = existing_news + inbox_news + fetched_news
 
@@ -334,6 +416,9 @@ def run(clear_inbox: bool = True, dry_run: bool = False) -> dict[str, Any]:
         "final_count": len(sorted_output),
         "inbox_cleared": clear_inbox and not dry_run,
         "dry_run": dry_run,
+        "use_rss": use_rss,
+        "use_api": use_api,
+        "use_calendar": use_calendar,
     }
 
 def print_news_status(max_items: int = 5) -> None:
@@ -373,6 +458,19 @@ def print_news_status(max_items: int = 5) -> None:
     print_items("Inbox latest", inbox_news)
     print_items("Published latest", published_news)
 
+
+def clear_inbox() -> dict[str, Any]:
+    """
+    Vide macro_news_inbox.json sans toucher à macro_news.json.
+    """
+    inbox_news = load_json_list(MACRO_NEWS_INBOX_PATH)
+    write_json_list(MACRO_NEWS_INBOX_PATH, [])
+
+    return {
+        "inbox_path": str(MACRO_NEWS_INBOX_PATH),
+        "cleared_count": len(inbox_news),
+    }
+
 def parse_args() -> argparse.Namespace:
     """
     Parse les options CLI du pipeline macro news.
@@ -396,6 +494,24 @@ def parse_args() -> argparse.Namespace:
         "--keep-inbox",
         action="store_true",
         help="Do not clear macro_news_inbox.json after ingestion.",
+    )
+
+    parser.add_argument(
+        "--use-rss",
+        action="store_true",
+        help="Enable RSS macro news source adapter. Currently scaffolded only.",
+    )
+
+    parser.add_argument(
+        "--use-api",
+        action="store_true",
+        help="Enable API macro news source adapter. Currently scaffolded only.",
+    )
+
+    parser.add_argument(
+        "--use-calendar",
+        action="store_true",
+        help="Enable macro calendar source adapter. Currently scaffolded only.",
     )
 
     # ------------------------------------------------------------------
@@ -478,6 +594,14 @@ def parse_args() -> argparse.Namespace:
         help="Maximum number of latest items to display.",
     )
 
+    # ------------------------------------------------------------------
+    # Clear inbox command
+    # ------------------------------------------------------------------
+    subparsers.add_parser(
+        "clear-inbox",
+        help="Clear macro_news_inbox.json without publishing anything.",
+    )
+
     return parser.parse_args()
 
 if __name__ == "__main__":
@@ -508,10 +632,20 @@ if __name__ == "__main__":
     elif args.command == "status":
         print_news_status(max_items=args.max_items)
 
+    elif args.command == "clear-inbox":
+        result = clear_inbox()
+
+        print("[OK] Macro news inbox cleared")
+        print(f"Inbox path: {result['inbox_path']}")
+        print(f"Cleared items: {result['cleared_count']}")
+
     else:
         result = run(
             clear_inbox=not args.keep_inbox,
             dry_run=args.dry_run,
+            use_rss=args.use_rss,
+            use_api=args.use_api,
+            use_calendar=args.use_calendar,
         )
 
         print("[OK] Macro news pipeline completed")
@@ -524,3 +658,6 @@ if __name__ == "__main__":
         print(f"Final news: {result['final_count']}")
         print(f"Inbox cleared: {result['inbox_cleared']}")
         print(f"Dry run: {result['dry_run']}")
+        print(f"Use RSS: {result['use_rss']}")
+        print(f"Use API: {result['use_api']}")
+        print(f"Use Calendar: {result['use_calendar']}")
