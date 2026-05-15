@@ -1,5 +1,43 @@
 [
   {
+    "date": "2026-05-15",
+    "category": "Commodities",
+    "importance": "High",
+    "title": "U.S. industrial natural gas consumption expected to hit records in 2026 and 2027",
+    "summary": "We forecast U.S. industrial natural gas consumption will climb to record highs through 2027 in our latest Short-Term Energy Outlook. Industrial consumption averaged a record 23.6 billion cubic feet per day (Bcf/d) in 2025, 1% more than the record 23.4 Bcf/d reached in 2023. In our forecast, consumption gradually increases further in 2026 and in 2027 as we expect the natural gas-weighted manufacturing index to also rise slightly over this period.",
+    "source": "EIA Today in Energy",
+    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67686",
+    "tickers": [],
+    "tags": [
+      "EIA",
+      "Energy",
+      "Oil",
+      "Gas",
+      "Commodities",
+      "Inflation Pressure"
+    ],
+    "news_id": "780e8ef5d9e03fc5"
+  },
+  {
+    "date": "2026-04-30",
+    "category": "Commodities",
+    "importance": "Medium",
+    "title": "DOE has released 17.5 million barrels from the Strategic Petroleum Reserve since March",
+    "summary": "Between the week ending March 20 and the week ending April 24, the U.S. Department of Energy (DOE) released a total of 17.5 million barrels of crude oil from the U.S. Strategic Petroleum Reserve (SPR), according to data in our Weekly Petroleum Status Report. DOE released 7.1 million barrels in the week ending April 24, the most released since the week ending October 7, 2022. SPR stocks are currently 397.9 million barrels.",
+    "source": "EIA Today in Energy",
+    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67625",
+    "tickers": [],
+    "tags": [
+      "EIA",
+      "Energy",
+      "Oil",
+      "Gas",
+      "Commodities",
+      "Inflation Pressure"
+    ],
+    "news_id": "aeae697ea586b23b"
+  },
+  {
     "date": "2026-04-29",
     "category": "Central Banks",
     "importance": "High",
@@ -15,6 +53,158 @@
       "Monetary Policy"
     ],
     "news_id": "6139100ec40faaed"
+  },
+  {
+    "date": "2026-04-29",
+    "category": "Commodities",
+    "importance": "Medium",
+    "title": "Alaska proved reserves increased in 2024, while nationwide proved reserves fell",
+    "summary": "Oil and gas producers operating in Alaska reported increases in proved reserves in 2024 at a time when low prices triggered a decrease in nationwide proved reserves, according to our recently released U.S. Crude Oil and Natural Gas Proved Reserves, Year-End 2024 report. Alaska's crude oil and lease condensate proved reserves increased 5%, and natural gas proved reserves increased nearly 7% in 2024.",
+    "source": "EIA Today in Energy",
+    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67624",
+    "tickers": [],
+    "tags": [
+      "EIA",
+      "Energy",
+      "Oil",
+      "Gas",
+      "Commodities",
+      "Inflation Pressure"
+    ],
+    "news_id": "0aa983145002a3dc"
+  },
+  {
+    "date": "2026-04-28",
+    "category": "Commodities",
+    "importance": "High",
+    "title": "International LNG prices rise amid Strait of Hormuz closure",
+    "summary": "Prices for natural gas in Europe and Asia have diverged from those in the United States since the February 28 closure of the Strait of Hormuz.",
+    "source": "EIA Today in Energy",
+    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67604",
+    "tickers": [],
+    "tags": [
+      "EIA",
+      "Energy",
+      "Oil",
+      "Gas",
+      "Commodities",
+      "Inflation Pressure"
+    ],
+    "news_id": "1dccd61cd22c3f1a"
+  },
+  {
+    "date": "2026-04-24",
+    "category": "Commodities",
+    "importance": "High",
+    "title": "Brent crude oil spot prices surge past futures price in April",
+    "summary": "The Dated Brent spot price increased to a premium of more than $25 per barrel (b) compared with the front-month Brent futures contract in early April. Brent crude oil price benchmarks are widely used by commodities traders, financial market participants, economists, and others to assess changes in global petroleum prices more broadly.",
+    "source": "EIA Today in Energy",
+    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67544",
+    "tickers": [],
+    "tags": [
+      "EIA",
+      "Energy",
+      "Oil",
+      "Gas",
+      "Commodities",
+      "Inflation Pressure"
+    ],
+    "news_id": "a3b32b3e235aaf12"
+  },
+  {
+    "date": "2026-04-23",
+    "category": "Commodities",
+    "importance": "High",
+    "title": "The 10th U.S. liquefied natural gas export terminal, Golden Pass, ships first cargo",
+    "summary": "On April 22, 2026, Golden Pass LNG-the 10th liquefied natural gas (LNG) terminal in the United States-shipped its first cargo from Train 1, according to the project developer. The shipment left port 23 days after achieving first LNG production in March 2026. The terminal began shipping as geopolitical developments in the Strait of Hormuz have affected over 10 billion cubic feet per day (Bcf/d), or approximately 20%, of global supply. Golden Pass LNG is the only new U.S. LNG export terminal currently expected to begin LNG shipments in 2026.",
+    "source": "EIA Today in Energy",
+    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67564",
+    "tickers": [],
+    "tags": [
+      "EIA",
+      "Energy",
+      "Oil",
+      "Gas",
+      "Commodities",
+      "Inflation Pressure"
+    ],
+    "news_id": "0aaba089721bd108"
+  },
+  {
+    "date": "2026-04-21",
+    "category": "Commodities",
+    "importance": "Medium",
+    "title": "Natural gas inventories at the end of winter heating season were near five-year average",
+    "summary": "We estimate the Lower 48 U.S. states began this natural gas injection season (April–October) with 1,890 billion cubic feet (Bcf) of working natural gas in storage, based on interpolated data from our Weekly Natural Gas Storage Report. This level was 3% above the previous five-year (2021–25) average and 3% above last year's end-of-season storage volume.",
+    "source": "EIA Today in Energy",
+    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67524",
+    "tickers": [],
+    "tags": [
+      "EIA",
+      "Energy",
+      "Oil",
+      "Gas",
+      "Commodities",
+      "Inflation Pressure"
+    ],
+    "news_id": "9d61fab201a10124"
+  },
+  {
+    "date": "2026-04-20",
+    "category": "Commodities",
+    "importance": "High",
+    "title": "China, the United States, and Japan hold most strategic oil inventories in 2025",
+    "summary": "In the 1970s, the United States and other OECD countries established strategic oil stocks aimed at mitigating the impact of supply disruptions. In March 2026, the United States, along with other members of the International Energy Agency, agreed to a coordinated emergency release of strategic oil stocks following the effective closure of the Strait of Hormuz.",
+    "source": "EIA Today in Energy",
+    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67504",
+    "tickers": [],
+    "tags": [
+      "EIA",
+      "Energy",
+      "Oil",
+      "Gas",
+      "Commodities",
+      "Inflation Pressure"
+    ],
+    "news_id": "d7a9d42bcb423aef"
+  },
+  {
+    "date": "2026-04-16",
+    "category": "Commodities",
+    "importance": "Medium",
+    "title": "U.S. natural gas exports to grow nearly 30% by 2027 as LNG facilities ramp up",
+    "summary": "In our latest Short-Term Energy Outlook (STEO), we forecast that U.S. liquefied natural gas (LNG) exports will continue to increase as five LNG export projects start operations and ramp up production by the end of 2027. We also forecast increased natural gas pipeline exports, mainly to Mexico. In our forecast, net exports of U.S. natural gas (exports minus imports) grow 18% to 18.7 billion cubic feet per day (Bcf/d) in 2026. In 2027, net exports increase another 10% to 20.5 Bcf/d.",
+    "source": "EIA Today in Energy",
+    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67484",
+    "tickers": [],
+    "tags": [
+      "EIA",
+      "Energy",
+      "Oil",
+      "Gas",
+      "Commodities",
+      "Inflation Pressure"
+    ],
+    "news_id": "ab649644d380a6d5"
+  },
+  {
+    "date": "2026-04-15",
+    "category": "Commodities",
+    "importance": "High",
+    "title": "What's in your gasoline? Understanding U.S. motor gasoline formulations",
+    "summary": "Motor gasoline in the United States is a blend of hydrocarbons and chemicals, with specific formulas varying by region and season. To meet federal air quality standards, the U.S. Environmental Protection Agency (EPA) and state regulators require different formulations, depending on air quality and location, which affect performance, cost, and emissions. In addition, warmer summer months require a different gasoline formulation than cooler winter months. Key differences between formulations include octane rating, volatility-commonly measured as Reid vapor pressure (RVP)-and emissions. This year, the EPA will relax federal enforcement of summer RVP standards to help reduce gasoline prices.",
+    "source": "EIA Today in Energy",
+    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67464",
+    "tickers": [],
+    "tags": [
+      "EIA",
+      "Energy",
+      "Oil",
+      "Gas",
+      "Commodities",
+      "Inflation Pressure"
+    ],
+    "news_id": "11eb35c692c5627e"
   },
   {
     "date": "2026-04-14",

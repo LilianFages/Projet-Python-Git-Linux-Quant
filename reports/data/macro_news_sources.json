@@ -94,5 +94,41 @@
     "include_keywords": [],
     "exclude_keywords": [],
     "max_items": 10
-  }
+  },
+  {
+  "source_id": "eia_today_in_energy",
+  "name": "EIA Today in Energy",
+  "type": "rss",
+  "category": "Commodities",
+  "enabled": true,
+  "url": "https://www.eia.gov/rss/todayinenergy.xml",
+  "default_importance": "Medium",
+  "tags": ["EIA", "Energy", "Oil", "Gas", "Commodities", "Inflation Pressure"],
+  "include_keywords": [
+    "oil",
+    "crude",
+    "petroleum",
+    "gasoline",
+    "diesel",
+    "natural gas",
+    "LNG",
+    "inventories",
+    "stocks",
+    "prices",
+    "exports",
+    "production",
+    "OPEC"
+  ],
+  "exclude_keywords": [
+    "electricity",
+    "coal",
+    "renewable",
+    "solar",
+    "wind",
+    "nuclear",
+    "residential",
+    "commercial buildings"
+  ],
+  "max_items": 10
+}
 ]

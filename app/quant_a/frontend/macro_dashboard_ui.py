@@ -318,6 +318,7 @@ def render():
         events=macro_events_dashboard,
         news=macro_news_dashboard,
         macro_regime=macro_regime,
+        macro_df=macro_df,
     )
 
     render_news_pipeline_status(
@@ -1756,6 +1757,7 @@ def render_macro_events_center(
     events: list[dict[str, Any]],
     news: list[dict[str, Any]],
     macro_regime: dict[str, Any],
+    macro_df: pd.DataFrame | None = None,
 ) -> None:
     """
     Affiche le Macro Events Center avec deux flux :
@@ -1841,6 +1843,7 @@ def render_macro_events_center(
         render_event_impact_board(
             validated_events=events,
             news_events=news,
+            macro_df=macro_df,
         )
 
 # ---------------------------------------------------------------------
@@ -1957,9 +1960,18 @@ def importance_to_score(importance: Any) -> int:
 def prepare_event_impact_board(
     validated_events: list[dict[str, Any]],
     news_events: list[dict[str, Any]],
+    macro_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """
     Prépare un tableau combiné d'impact macro events/news.
+
+    Version V2.6 :
+    - infère le facteur macro ;
+    - infère la direction ;
+    - calcule un impact score textuel ;
+    - ajoute une confirmation marché ;
+    - calcule une priorité finale ;
+    - signale les candidats à l'alerte.
     """
     combined = []
 
@@ -1984,6 +1996,19 @@ def prepare_event_impact_board(
         importance = event.get("importance", "Low")
         impact_score = importance_to_score(importance)
 
+        confirmation_label, confirmation_score, confirmation_details = infer_market_confirmation(
+            factor=factor,
+            macro_df=macro_df if macro_df is not None else pd.DataFrame(),
+        )
+
+        final_priority, final_score = final_priority_from_scores(
+            impact_score=impact_score,
+            market_confirmation_score=confirmation_score,
+            direction=direction,
+        )
+
+        alert_candidate = is_alert_candidate(final_priority, final_score)
+
         rows.append({
             "Type": event.get("_type", ""),
             "Date": event.get("date", ""),
@@ -1992,6 +2017,12 @@ def prepare_event_impact_board(
             "Factor": factor,
             "Direction": direction,
             "Impact Score": impact_score,
+            "Market Confirmation": confirmation_label,
+            "Market Score": confirmation_score,
+            "Final Priority": final_priority,
+            "Final Score": final_score,
+            "Alert Candidate": "Yes" if alert_candidate else "No",
+            "Market Evidence": " | ".join(confirmation_details),
             "Title": event.get("title", ""),
             "Source": event.get("source", ""),
         })
@@ -2002,8 +2033,8 @@ def prepare_event_impact_board(
         return df
 
     df = df.sort_values(
-        ["Impact Score", "Date"],
-        ascending=[False, False],
+        ["Final Score", "Impact Score", "Date"],
+        ascending=[False, False, False],
     ).reset_index(drop=True)
 
     return df
@@ -2011,7 +2042,7 @@ def prepare_event_impact_board(
 
 def summarize_event_factor_pressure(event_impact_df: pd.DataFrame) -> list[str]:
     """
-    Résume les facteurs les plus représentés dans les événements/news.
+    Résume les facteurs les plus représentés et les alertes potentielles.
     """
     if event_impact_df is None or event_impact_df.empty:
         return ["No event impact data available."]
@@ -2020,7 +2051,7 @@ def summarize_event_factor_pressure(event_impact_df: pd.DataFrame) -> list[str]:
 
     factor_counts = (
         event_impact_df
-        .groupby("Factor")["Impact Score"]
+        .groupby("Factor")["Final Score"]
         .sum()
         .sort_values(ascending=False)
     )
@@ -2028,26 +2059,27 @@ def summarize_event_factor_pressure(event_impact_df: pd.DataFrame) -> list[str]:
     if not factor_counts.empty:
         top_factor = factor_counts.index[0]
         top_score = factor_counts.iloc[0]
-        lines.append(f"Top event-driven factor: {top_factor} with impact score {int(top_score)}.")
+        lines.append(f"Top market-confirmed factor: {top_factor} with final score {int(top_score)}.")
 
-    high_events = event_impact_df[event_impact_df["Importance"] == "High"]
+    priority_counts = event_impact_df["Final Priority"].value_counts().to_dict()
 
-    if not high_events.empty:
-        lines.append(f"{len(high_events)} high-importance event(s) are currently active.")
+    if priority_counts:
+        priority_text = ", ".join(
+            f"{k}: {v}" for k, v in priority_counts.items()
+        )
+        lines.append(f"Priority distribution: {priority_text}.")
 
-    pressure_events = event_impact_df[
-        event_impact_df["Direction"].isin(["Pressure Up", "Negative"])
-    ]
+    alert_count = int((event_impact_df["Alert Candidate"] == "Yes").sum())
 
-    if not pressure_events.empty:
-        lines.append(f"{len(pressure_events)} event(s) point to adverse macro pressure.")
+    if alert_count > 0:
+        lines.append(f"{alert_count} event(s) currently qualify as alert candidates.")
+    else:
+        lines.append("No event currently qualifies as an alert candidate.")
 
-    supportive_events = event_impact_df[
-        event_impact_df["Direction"].isin(["Supportive", "Pressure Down"])
-    ]
+    strong_confirmed = event_impact_df[event_impact_df["Market Confirmation"] == "Strong"]
 
-    if not supportive_events.empty:
-        lines.append(f"{len(supportive_events)} event(s) appear supportive or pressure-reducing.")
+    if not strong_confirmed.empty:
+        lines.append(f"{len(strong_confirmed)} event(s) are strongly confirmed by market moves.")
 
     return lines[:4]
 
@@ -2055,17 +2087,22 @@ def summarize_event_factor_pressure(event_impact_df: pd.DataFrame) -> list[str]:
 def render_event_impact_board(
     validated_events: list[dict[str, Any]],
     news_events: list[dict[str, Any]],
+    macro_df: pd.DataFrame | None = None,
 ) -> None:
     """
     Affiche un board d'impact pour les événements/news macro.
     """
-    impact_df = prepare_event_impact_board(validated_events, news_events)
+    impact_df = prepare_event_impact_board(
+        validated_events=validated_events,
+        news_events=news_events,
+        macro_df=macro_df,
+    )
 
     if impact_df.empty:
         st.info("No event impact board available.")
         return
 
-    left, right = st.columns([1.1, 1])
+    left, right = st.columns([1.2, 1])
 
     with left:
         st.markdown("#### Impact Board")
@@ -2073,13 +2110,233 @@ def render_event_impact_board(
             impact_df,
             use_container_width=True,
             hide_index=True,
-            height=320,
+            height=360,
         )
 
     with right:
         st.markdown("#### Impact Summary")
         for line in summarize_event_factor_pressure(impact_df):
             st.markdown(f"- {line}")
+
+        alert_df = impact_df[impact_df["Alert Candidate"] == "Yes"]
+
+        if not alert_df.empty:
+            st.markdown("#### Alert Candidates")
+            for _, row in alert_df.head(5).iterrows():
+                st.warning(
+                    f"{row.get('Final Priority')} · {row.get('Factor')} · "
+                    f"{row.get('Title')}"
+                )
+
+# ---------------------------------------------------------------------
+# Market-confirmed News Scoring — Macro Dashboard V2.6-A
+# ---------------------------------------------------------------------
+def get_macro_value(macro_df: pd.DataFrame, name: str, column: str) -> float:
+    """
+    Récupère une métrique macro par nom d'instrument.
+    Retourne np.nan si indisponible.
+    """
+    if macro_df is None or macro_df.empty:
+        return np.nan
+
+    if "name" not in macro_df.columns or column not in macro_df.columns:
+        return np.nan
+
+    rows = macro_df[macro_df["name"] == name]
+
+    if rows.empty:
+        return np.nan
+
+    return pd.to_numeric(rows.iloc[0].get(column), errors="coerce")
+
+
+def infer_market_confirmation(
+    factor: str,
+    macro_df: pd.DataFrame,
+) -> tuple[str, int, list[str]]:
+    """
+    Croise un facteur news avec les mouvements de marché.
+
+    Retourne :
+    - label de confirmation
+    - score numérique
+    - détails explicatifs
+    """
+    if macro_df is None or macro_df.empty:
+        return "No market data", 0, ["Market data unavailable."]
+
+    details: list[str] = []
+    score = 0
+
+    # ------------------------------------------------------------------
+    # Rates Pressure confirmation
+    # ------------------------------------------------------------------
+    if factor == "Rates Pressure":
+        us10_5d = get_macro_value(macro_df, "US 10Y Yield", "change_5d")
+        us10_20d = get_macro_value(macro_df, "US 10Y Yield", "change_20d")
+        dxy_5d = get_macro_value(macro_df, "DXY", "ret_5d")
+
+        if pd.notna(us10_5d):
+            if us10_5d > 0.10:
+                score += 2
+                details.append(f"US 10Y is up {us10_5d:.3f} over 5D.")
+            elif us10_5d > 0.05:
+                score += 1
+                details.append(f"US 10Y is moderately higher over 5D.")
+
+        if pd.notna(us10_20d) and us10_20d > 0.20:
+            score += 1
+            details.append(f"US 10Y is materially higher over 20D.")
+
+        if pd.notna(dxy_5d) and dxy_5d > 0:
+            score += 1
+            details.append("DXY is positive over 5D.")
+
+    # ------------------------------------------------------------------
+    # Dollar Strength confirmation
+    # ------------------------------------------------------------------
+    elif factor == "Dollar Strength":
+        dxy_5d = get_macro_value(macro_df, "DXY", "ret_5d")
+        eurusd_5d = get_macro_value(macro_df, "EUR/USD", "ret_5d")
+        usdjpy_5d = get_macro_value(macro_df, "USD/JPY", "ret_5d")
+
+        if pd.notna(dxy_5d):
+            if dxy_5d > 0.01:
+                score += 2
+                details.append("DXY is up more than 1% over 5D.")
+            elif dxy_5d > 0:
+                score += 1
+                details.append("DXY is positive over 5D.")
+
+        if pd.notna(eurusd_5d) and eurusd_5d < -0.01:
+            score += 1
+            details.append("EUR/USD is down more than 1% over 5D.")
+
+        if pd.notna(usdjpy_5d) and usdjpy_5d > 0.01:
+            score += 1
+            details.append("USD/JPY is up more than 1% over 5D.")
+
+    # ------------------------------------------------------------------
+    # Commodity / Inflation confirmation
+    # ------------------------------------------------------------------
+    elif factor in {"Commodity Pressure", "Inflation Pressure"}:
+        brent_5d = get_macro_value(macro_df, "Brent", "ret_5d")
+        wti_5d = get_macro_value(macro_df, "WTI", "ret_5d")
+        gas_5d = get_macro_value(macro_df, "Natural Gas", "ret_5d")
+        copper_20d = get_macro_value(macro_df, "Copper", "ret_20d")
+
+        if pd.notna(brent_5d):
+            if brent_5d > 0.03:
+                score += 2
+                details.append("Brent is up more than 3% over 5D.")
+            elif brent_5d > 0:
+                score += 1
+                details.append("Brent is positive over 5D.")
+
+        if pd.notna(wti_5d):
+            if wti_5d > 0.03:
+                score += 2
+                details.append("WTI is up more than 3% over 5D.")
+            elif wti_5d > 0:
+                score += 1
+                details.append("WTI is positive over 5D.")
+
+        if pd.notna(gas_5d) and gas_5d > 0.05:
+            score += 2
+            details.append("Natural Gas is up more than 5% over 5D.")
+
+        if pd.notna(copper_20d) and copper_20d > 0.05:
+            score += 1
+            details.append("Copper is up more than 5% over 20D.")
+
+    # ------------------------------------------------------------------
+    # Risk Appetite confirmation
+    # ------------------------------------------------------------------
+    elif factor == "Risk Appetite":
+        spx_5d = get_macro_value(macro_df, "S&P 500", "ret_5d")
+        nasdaq_5d = get_macro_value(macro_df, "Nasdaq", "ret_5d")
+        btc_5d = get_macro_value(macro_df, "Bitcoin", "ret_5d")
+
+        if pd.notna(spx_5d) and spx_5d > 0:
+            score += 1
+            details.append("S&P 500 is positive over 5D.")
+
+        if pd.notna(nasdaq_5d) and nasdaq_5d > 0:
+            score += 1
+            details.append("Nasdaq is positive over 5D.")
+
+        if pd.notna(btc_5d) and btc_5d > 0:
+            score += 1
+            details.append("Bitcoin is positive over 5D.")
+
+    # ------------------------------------------------------------------
+    # Growth Risk / Geopolitical Risk fallback
+    # ------------------------------------------------------------------
+    elif factor in {"Growth Risk", "Geopolitical Risk"}:
+        spx_5d = get_macro_value(macro_df, "S&P 500", "ret_5d")
+        gold_5d = get_macro_value(macro_df, "Gold", "ret_5d")
+        brent_5d = get_macro_value(macro_df, "Brent", "ret_5d")
+
+        if pd.notna(spx_5d) and spx_5d < 0:
+            score += 1
+            details.append("S&P 500 is negative over 5D.")
+
+        if pd.notna(gold_5d) and gold_5d > 0:
+            score += 1
+            details.append("Gold is positive over 5D.")
+
+        if factor == "Geopolitical Risk" and pd.notna(brent_5d) and brent_5d > 0:
+            score += 1
+            details.append("Brent is positive over 5D.")
+
+    if score >= 3:
+        label = "Strong"
+    elif score >= 1:
+        label = "Moderate"
+    else:
+        label = "Weak"
+
+    if not details:
+        details.append("No clear market confirmation detected.")
+
+    return label, int(score), details[:3]
+
+
+def final_priority_from_scores(
+    impact_score: int,
+    market_confirmation_score: int,
+    direction: str,
+) -> tuple[str, int]:
+    """
+    Combine importance textuelle + confirmation marché.
+
+    Score final :
+    - impact_score vient de High/Medium/Low
+    - market_confirmation_score vient des mouvements cross-asset
+    - direction adverse peut renforcer le niveau d'alerte
+    """
+    final_score = int(impact_score) + int(market_confirmation_score)
+
+    if direction in {"Pressure Up", "Negative"}:
+        final_score += 1
+
+    if final_score >= 6:
+        return "Critical", final_score
+
+    if final_score >= 4:
+        return "High", final_score
+
+    if final_score >= 2:
+        return "Medium", final_score
+
+    return "Low", final_score
+
+
+def is_alert_candidate(priority: str, final_score: int) -> bool:
+    """
+    Détermine si une news/event mérite une alerte.
+    """
+    return priority in {"Critical", "High"} and final_score >= 4
 
 # ---------------------------------------------------------------------
 # Macro News Pipeline Status — Macro Dashboard V2.5-L

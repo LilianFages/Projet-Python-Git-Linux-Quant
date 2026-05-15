@@ -579,22 +579,56 @@ def rss_item_is_relevant(item: dict[str, Any], source: dict[str, Any]) -> bool:
 
 def infer_rss_importance(item: dict[str, Any], source: dict[str, Any]) -> str:
     """
-    Infère l'importance d'une news RSS à partir de son contenu.
+    Infère l'importance d'une news RSS à partir de son contenu réel.
 
-    Priorité :
-    - High : décisions monétaires, inflation, FOMC/ECB policy, projections
-    - Medium : discours, outlook, stabilité financière, marchés
-    - Low : administratif, technique, supervision, nominations
+    Important :
+    On utilise uniquement title + summary.
+    On n'utilise pas les tags de source pour éviter de classer artificiellement
+    toutes les news EIA/Fed en High.
     """
     default_importance = normalize_importance(source.get("default_importance", "Medium"))
+
+    category = str(source.get("category", "")).strip()
 
     text = " ".join([
         str(item.get("title", "")),
         str(item.get("summary", "")),
-        " ".join(str(tag) for tag in item.get("tags", []) if isinstance(tag, str)),
     ]).lower()
 
-    high_keywords = [
+    # ------------------------------------------------------------
+    # Administrative / low-impact content
+    # ------------------------------------------------------------
+    low_keywords = [
+        "appointment",
+        "appoints",
+        "resignation",
+        "technical",
+        "operational",
+        "supervisory",
+        "consultation",
+        "sanction",
+        "enforcement action",
+        "civil money penalty",
+        "bank holding company",
+        "termination",
+        "approval of application",
+        "approval of related applications",
+        "application by",
+        "announces approval",
+        "host state loan-to-deposit",
+        "community bank leverage ratio",
+        "senior financial officers",
+        "economic well-being",
+        "households",
+    ]
+
+    if any(keyword in text for keyword in low_keywords):
+        return "Low"
+
+    # ------------------------------------------------------------
+    # Central banks / macro high-impact
+    # ------------------------------------------------------------
+    central_bank_high_keywords = [
         "fomc",
         "federal funds",
         "interest rate decision",
@@ -615,7 +649,44 @@ def infer_rss_importance(item: dict[str, Any], source: dict[str, Any]) -> str:
         "press conference",
     ]
 
-    medium_keywords = [
+    # ------------------------------------------------------------
+    # Commodities high-impact
+    # ------------------------------------------------------------
+    commodity_high_keywords = [
+        "opec",
+        "strait of hormuz",
+        "hormuz",
+        "supply disruption",
+        "disruption",
+        "sanctions",
+        "war",
+        "conflict",
+        "inventory draw",
+        "inventories fell",
+        "stocks fell",
+        "prices rise",
+        "prices surge",
+        "spike",
+        "record high",
+    ]
+
+    commodity_medium_keywords = [
+        "oil",
+        "crude",
+        "petroleum",
+        "gasoline",
+        "diesel",
+        "natural gas",
+        "lng",
+        "inventories",
+        "stocks",
+        "production",
+        "exports",
+        "consumption",
+        "prices",
+    ]
+
+    general_medium_keywords = [
         "speech",
         "remarks",
         "testimony",
@@ -631,27 +702,28 @@ def infer_rss_importance(item: dict[str, Any], source: dict[str, Any]) -> str:
         "market operations",
     ]
 
-    low_keywords = [
-        "appointment",
-        "appoints",
-        "technical",
-        "operational",
-        "supervisory",
-        "consultation",
-        "sanction",
-        "enforcement action",
-        "civil money penalty",
-        "bank holding company",
-        "termination",
-    ]
+    if category == "Commodities":
+        if any(keyword in text for keyword in commodity_high_keywords):
+            return "High"
 
-    if any(keyword in text for keyword in low_keywords):
-        return "Low"
+        if any(keyword in text for keyword in commodity_medium_keywords):
+            return "Medium"
 
-    if any(keyword in text for keyword in high_keywords):
+        return default_importance
+
+    if category == "Central Banks":
+        if any(keyword in text for keyword in central_bank_high_keywords):
+            return "High"
+
+        if any(keyword in text for keyword in general_medium_keywords):
+            return "Medium"
+
+        return default_importance
+
+    if any(keyword in text for keyword in central_bank_high_keywords):
         return "High"
 
-    if any(keyword in text for keyword in medium_keywords):
+    if any(keyword in text for keyword in general_medium_keywords):
         return "Medium"
 
     return default_importance
