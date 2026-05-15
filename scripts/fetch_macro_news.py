@@ -1028,8 +1028,13 @@ def item_matches_report_window(
     if has_intraday_timestamp:
         return start <= item_dt <= end
 
-    # Date-only fallback : on garde si la date correspond à la date de fin de fenêtre.
-    return item_dt.date() == end.date()
+    # Si la news n'a qu'une date sans heure, impossible de la segmenter
+    # précisément par créneau intraday.
+    # On la garde uniquement dans les fenêtres larges.
+    if window in {"recent", "full-day"}:
+        return item_dt.date() == end.date()
+
+    return False
 
 
 def filter_news_by_report_window(

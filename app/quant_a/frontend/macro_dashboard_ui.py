@@ -109,6 +109,16 @@ def render():
             help="Number of recent days loaded from reports/data/macro_news.json.",
         )
 
+        live_news_session = st.selectbox(
+            "Live news session",
+            options=["recent", "overnight", "morning", "afternoon", "full-day", "alert-check"],
+            index=0,
+            help=(
+                "Session filter for live macro news. "
+                "Use recent for standard dashboard view, or session windows for future scheduled reports."
+            ),
+        )
+
         st.markdown("#### Macro Events Filters")
 
         event_importance_filter = st.multiselect(
@@ -188,6 +198,10 @@ def render():
         importance_filter=event_importance_filter,
         category_filter=event_category_filter,
     )
+    macro_news_dashboard = filter_dashboard_news_by_session(
+        news=macro_news_dashboard,
+        window=live_news_session,
+    )
 
     if macro_df is None or macro_df.empty:
         st.error("Macro data unavailable.")
@@ -216,7 +230,8 @@ def render():
 
     st.caption(
         f"Last refresh: {loaded_at} · Lookback: {lookback_days}d · "
-        f"Live news: {live_news_days}d · Context: {validated_context_days}d"
+        f"Live news: {live_news_days}d · Session: {live_news_session} · "
+        f"Context: {validated_context_days}d"
     )
 
     # ---------------------------------------------------------------------
@@ -2437,3 +2452,163 @@ def render_event_cards_scrollable(
     with st.container(height=height, border=False):
         for event in events:
             render_event_card(event)
+
+# ---------------------------------------------------------------------
+# Live News Session Filtering — Macro Dashboard V2.6-B
+# ---------------------------------------------------------------------
+def get_dashboard_report_window_bounds(
+    window: str,
+    reference_dt: datetime | None = None,
+) -> tuple[datetime | None, datetime | None]:
+    """
+    Calcule les bornes temporelles d'une session de news côté dashboard.
+    Même logique que le pipeline CLI, mais utilisée pour filtrer l'affichage.
+    """
+    window = str(window or "recent").strip()
+
+    now = reference_dt or datetime.now()
+
+    if window == "recent":
+        return None, None
+
+    if window == "alert-check":
+        return now - timedelta(minutes=30), now
+
+    definitions = {
+        "overnight": {
+            "start_hour": 18,
+            "start_minute": 30,
+            "end_hour": 8,
+            "end_minute": 0,
+            "crosses_midnight": True,
+        },
+        "morning": {
+            "start_hour": 8,
+            "start_minute": 0,
+            "end_hour": 12,
+            "end_minute": 30,
+            "crosses_midnight": False,
+        },
+        "afternoon": {
+            "start_hour": 12,
+            "start_minute": 30,
+            "end_hour": 18,
+            "end_minute": 30,
+            "crosses_midnight": False,
+        },
+        "full-day": {
+            "start_hour": 8,
+            "start_minute": 0,
+            "end_hour": 18,
+            "end_minute": 30,
+            "crosses_midnight": False,
+        },
+    }
+
+    cfg = definitions.get(window)
+
+    if not cfg:
+        return None, None
+
+    if cfg.get("crosses_midnight"):
+        start = (now - timedelta(days=1)).replace(
+            hour=int(cfg["start_hour"]),
+            minute=int(cfg["start_minute"]),
+            second=0,
+            microsecond=0,
+        )
+        end = now.replace(
+            hour=int(cfg["end_hour"]),
+            minute=int(cfg["end_minute"]),
+            second=0,
+            microsecond=0,
+        )
+    else:
+        start = now.replace(
+            hour=int(cfg["start_hour"]),
+            minute=int(cfg["start_minute"]),
+            second=0,
+            microsecond=0,
+        )
+        end = now.replace(
+            hour=int(cfg["end_hour"]),
+            minute=int(cfg["end_minute"]),
+            second=0,
+            microsecond=0,
+        )
+
+    return start, end
+
+
+def parse_dashboard_news_datetime(item: dict[str, Any]) -> datetime | None:
+    """
+    Parse le timestamp d'une news.
+    Priorité :
+    - published_at
+    - date
+    """
+    published_at = str(item.get("published_at", "")).strip()
+
+    if published_at:
+        try:
+            return datetime.fromisoformat(published_at.replace("Z", "+00:00")).replace(tzinfo=None)
+        except Exception:
+            pass
+
+    try:
+        return datetime.fromisoformat(str(item.get("date", ""))[:10])
+    except Exception:
+        return None
+
+
+def dashboard_item_matches_session(
+    item: dict[str, Any],
+    window: str,
+    reference_dt: datetime | None = None,
+) -> bool:
+    """
+    Vérifie si une news appartient à la session sélectionnée.
+    """
+    window = str(window or "recent").strip()
+
+    if window == "recent":
+        return True
+
+    start, end = get_dashboard_report_window_bounds(window, reference_dt=reference_dt)
+
+    if start is None or end is None:
+        return True
+
+    item_dt = parse_dashboard_news_datetime(item)
+
+    if item_dt is None:
+        return True
+
+    has_intraday_timestamp = bool(str(item.get("published_at", "")).strip())
+
+    if has_intraday_timestamp:
+        return start <= item_dt <= end
+
+    # Si la news n'a qu'une date sans heure, on ne peut pas la classer
+    # proprement dans overnight / morning / afternoon / alert-check.
+    # On la garde seulement dans les vues larges.
+    if window in {"recent", "full-day"}:
+        return item_dt.date() == end.date()
+
+    return False
+
+
+def filter_dashboard_news_by_session(
+    news: list[dict[str, Any]],
+    window: str,
+) -> list[dict[str, Any]]:
+    """
+    Filtre les news live selon la session sélectionnée.
+    """
+    if not news:
+        return []
+
+    return [
+        item for item in news
+        if dashboard_item_matches_session(item, window=window, reference_dt=datetime.now())
+    ]
