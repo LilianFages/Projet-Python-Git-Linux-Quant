@@ -5,6 +5,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+import argparse
 
 
 # ------------------------------------------------------------
@@ -255,7 +256,7 @@ def fetch_external_macro_news() -> list[dict[str, Any]]:
 # ------------------------------------------------------------
 # Main pipeline
 # ------------------------------------------------------------
-def run(clear_inbox: bool = True) -> dict[str, Any]:
+def run(clear_inbox: bool = True, dry_run: bool = False) -> dict[str, Any]:
     """
     Pipeline principal :
     - charge les news existantes ;
@@ -288,7 +289,8 @@ def run(clear_inbox: bool = True) -> dict[str, Any]:
     deduped_news = deduplicate_news(valid_news)
     sorted_output = sort_news(deduped_news)
 
-    write_json_list(MACRO_NEWS_PATH, sorted_output)
+    if not dry_run:
+        write_json_list(MACRO_NEWS_PATH, sorted_output)
 
     if clear_inbox:
         write_json_list(MACRO_NEWS_INBOX_PATH, [])
@@ -301,12 +303,40 @@ def run(clear_inbox: bool = True) -> dict[str, Any]:
         "fetched_count": len(fetched_news),
         "valid_count": len(valid_news),
         "final_count": len(sorted_output),
-        "inbox_cleared": clear_inbox,
+        "inbox_cleared": clear_inbox and not dry_run,
+        "dry_run": dry_run,
     }
 
 
+def parse_args() -> argparse.Namespace:
+    """
+    Parse les options CLI du pipeline macro news.
+    """
+    parser = argparse.ArgumentParser(
+        description="Normalize, deduplicate and publish macro news."
+    )
+
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Run the pipeline without writing macro_news.json or clearing the inbox.",
+    )
+
+    parser.add_argument(
+        "--keep-inbox",
+        action="store_true",
+        help="Do not clear macro_news_inbox.json after ingestion.",
+    )
+
+    return parser.parse_args()
+
 if __name__ == "__main__":
-    result = run(clear_inbox=True)
+    args = parse_args()
+
+    result = run(
+        clear_inbox=not args.keep_inbox,
+        dry_run=args.dry_run,
+    )
 
     print("[OK] Macro news pipeline completed")
     print(f"Output path: {result['path']}")
@@ -317,3 +347,4 @@ if __name__ == "__main__":
     print(f"Valid news: {result['valid_count']}")
     print(f"Final news: {result['final_count']}")
     print(f"Inbox cleared: {result['inbox_cleared']}")
+    print(f"Dry run: {result['dry_run']}")
