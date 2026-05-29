@@ -362,12 +362,84 @@ def final_priority_from_scores(
 
     return "Low", final_score
 
+def event_has_shock_keywords(event: dict[str, Any]) -> bool:
+    """
+    Détecte les mots-clés qui justifient potentiellement une alerte intraday.
 
-def is_alert_candidate(priority: str, final_score: int) -> bool:
+    L'objectif est de distinguer :
+    - une news informative importante ;
+    - une vraie news de choc / surprise / disruption.
+    """
+    title = str(event.get("title", "")).lower()
+    summary = str(event.get("summary", "")).lower()
+    text = f"{title} {summary}"
+
+    shock_keywords = [
+        "surprise",
+        "unexpected",
+        "emergency",
+        "shock",
+        "crisis",
+        "default",
+        "downgrade",
+        "cut rates",
+        "rate cut",
+        "rate hike",
+        "hikes rates",
+        "raises rates",
+        "fomc statement",
+        "monetary policy decision",
+        "cpi shock",
+        "inflation shock",
+        "war",
+        "attack",
+        "conflict",
+        "sanctions",
+        "supply disruption",
+        "disruption",
+        "closure",
+        "strait of hormuz",
+        "hormuz",
+        "opec",
+        "inventory draw",
+        "stocks fell",
+        "inventories fell",
+        "prices surge",
+        "spot prices surge",
+        "spike",
+        "record high",
+    ]
+
+    return any(keyword in text for keyword in shock_keywords)
+
+def is_alert_candidate(
+    priority: str,
+    final_score: int,
+    factor: str | None = None,
+    market_confirmation: str | None = None,
+    event: dict[str, Any] | None = None,
+) -> bool:
     """
     Détermine si une news/event mérite une alerte.
+
+    Règle stricte :
+    - Critical => alerte ;
+    - High => alerte seulement si mot-clé de choc/surprise/disruption ;
+    - les signaux structurels High + Strong restent visibles comme High,
+      mais ne déclenchent pas d'alerte.
     """
-    return priority in {"Critical", "High"} and final_score >= 4
+    priority = str(priority or "")
+    final_score = int(final_score or 0)
+
+    has_shock = event_has_shock_keywords(event or {})
+
+    if priority == "Critical" and final_score >= 6:
+        return True
+
+    if priority == "High" and has_shock:
+        return True
+
+    return False
 
 
 def enrich_event_for_scoring(
@@ -403,6 +475,12 @@ def enrich_event_for_scoring(
     enriched["market_evidence"] = confirmation_details
     enriched["final_priority"] = final_priority
     enriched["final_score"] = final_score
-    enriched["alert_candidate"] = is_alert_candidate(final_priority, final_score)
+    enriched["alert_candidate"] = is_alert_candidate(
+        priority=final_priority,
+        final_score=final_score,
+        factor=factor,
+        market_confirmation=confirmation_label,
+        event=enriched,
+    )
 
     return enriched
