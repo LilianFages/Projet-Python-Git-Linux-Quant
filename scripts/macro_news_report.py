@@ -42,6 +42,12 @@ from app.common.macro import (  # noqa: E402
     load_macro_news,
 )
 
+from app.common.macro_news_scoring import (  # noqa: E402
+    enrich_event_for_scoring,
+    importance_to_score,
+    infer_event_factor,
+)
+
 from scripts.fetch_macro_news import (  # noqa: E402
     filter_news_by_report_window,
 )
@@ -131,59 +137,9 @@ def source_reliability(source: str) -> int:
 
 def infer_report_factor(item: dict[str, Any]) -> str:
     """
-    Inférence simple du facteur macro à partir du contenu de la news.
-    Cette logique est volontairement alignée avec le dashboard.
+    Wrapper rapport autour de la fonction commune.
     """
-    category = str(item.get("category", "")).lower()
-    title = str(item.get("title", "")).lower()
-    summary = str(item.get("summary", "")).lower()
-    tags = " ".join(str(x).lower() for x in item.get("tags", []) if isinstance(x, str))
-
-    text = f"{category} {title} {summary} {tags}"
-
-    if any(k in text for k in ["fed", "ecb", "yield", "yields", "rates", "rate", "bond", "treasury", "fomc"]):
-        return "Rates Pressure"
-
-    if any(k in text for k in ["dollar", "dxy", "eur/usd", "usd/jpy", "fx", "currency"]):
-        return "Dollar Strength"
-
-    if any(k in text for k in [
-        "oil",
-        "brent",
-        "wti",
-        "gas",
-        "natural gas",
-        "lng",
-        "crude",
-        "petroleum",
-        "gasoline",
-        "diesel",
-        "inventories",
-        "stocks",
-        "production",
-        "exports",
-        "copper",
-        "commodity",
-        "commodities",
-    ]):
-        return "Commodity Pressure"
-
-    if any(k in text for k in ["cpi", "pce", "ppi", "inflation", "prices"]):
-        return "Inflation Pressure"
-
-    if any(k in text for k in ["geopolitical", "war", "conflict", "sanction", "hormuz", "opec"]):
-        return "Geopolitical Risk"
-
-    if any(k in text for k in ["earnings", "big tech", "nasdaq", "growth", "ai", "technology"]):
-        return "Risk Appetite"
-
-    if any(k in text for k in ["gdp", "pmi", "nfp", "jobs", "employment", "retail sales", "slowdown"]):
-        return "Growth Risk"
-
-    if any(k in text for k in ["risk sentiment", "risk-on", "risk-off", "equity", "equities", "stocks"]):
-        return "Risk Appetite"
-
-    return "Macro"
+    return infer_event_factor(item)
 
 
 def get_macro_value(macro_df: pd.DataFrame, name: str, column: str) -> float:
@@ -440,35 +396,9 @@ def enrich_news_item_for_report(
 ) -> dict[str, Any]:
     """
     Ajoute facteur, direction, market confirmation et priorité finale.
+    Wrapper rapport autour du scoring commun.
     """
-    enriched = dict(item)
-
-    factor = infer_report_factor(enriched)
-    direction = infer_report_direction(enriched, factor)
-    impact_score = importance_rank(enriched.get("importance"))
-
-    confirmation_label, confirmation_score, confirmation_details = infer_report_market_confirmation(
-        factor=factor,
-        macro_df=macro_df,
-    )
-
-    final_priority, final_score = final_report_priority(
-        impact_score=impact_score,
-        market_confirmation_score=confirmation_score,
-        direction=direction,
-    )
-
-    enriched["factor"] = factor
-    enriched["direction"] = direction
-    enriched["impact_score"] = impact_score
-    enriched["market_confirmation"] = confirmation_label
-    enriched["market_score"] = confirmation_score
-    enriched["market_evidence"] = confirmation_details
-    enriched["final_priority"] = final_priority
-    enriched["final_score"] = final_score
-    enriched["alert_candidate"] = is_report_alert_candidate(final_priority, final_score)
-
-    return enriched
+    return enrich_event_for_scoring(item, macro_df=macro_df)
 
 
 def compute_basic_news_score(item: dict[str, Any]) -> int:
@@ -481,7 +411,7 @@ def compute_basic_news_score(item: dict[str, Any]) -> int:
         except Exception:
             pass
 
-    return importance_rank(item.get("importance")) + source_reliability(item.get("source"))
+    return importance_to_score(item.get("importance")) + source_reliability(item.get("source"))
 
 
 def sort_news_for_report(news: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -566,7 +496,10 @@ def build_interpretation(
 # ------------------------------------------------------------
 # Report generation
 # ------------------------------------------------------------
-def build_macro_news_report(report_type: str = "morning") -> dict[str, Any]:
+def build_macro_news_report(
+    report_type: str = "morning",
+    reference_dt: datetime | None = None,
+) -> dict[str, Any]:
     """
     Construit un rapport macro-news structuré.
     """
@@ -577,11 +510,13 @@ def build_macro_news_report(report_type: str = "morning") -> dict[str, Any]:
             f"Unknown report_type={report_type}. "
             f"Expected one of: {', '.join(REPORT_CONFIGS)}"
         )
+    
+    reference_dt = reference_dt or datetime.now()
 
     cfg = REPORT_CONFIGS[report_type]
     window = cfg["window"]
 
-    end_date = datetime.now().date()
+    end_date = reference_dt.date()
     start_date = end_date - pd.Timedelta(days=420)
 
     macro_df = compute_macro_report(start_date, end_date)
@@ -594,7 +529,7 @@ def build_macro_news_report(report_type: str = "morning") -> dict[str, Any]:
     window_news = filter_news_by_report_window(
         published_news,
         window=window,
-        reference_dt=datetime.now(),
+        reference_dt=reference_dt,
     )
 
     # Validated context remains broad background, not session-specific.
@@ -609,6 +544,7 @@ def build_macro_news_report(report_type: str = "morning") -> dict[str, Any]:
 
     report = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "reference_datetime": reference_dt.isoformat(timespec="seconds"),
         "report_type": report_type,
         "title": cfg["title"],
         "description": cfg["description"],
@@ -645,6 +581,7 @@ def render_report_markdown(report: dict[str, Any]) -> str:
     lines.append(f"# {report.get('title', 'Macro News Report')}")
     lines.append("")
     lines.append(f"Generated at: `{report.get('generated_at', '')}`")
+    lines.append(f"Reference datetime: `{report.get('reference_datetime', '')}`")
     lines.append(f"Window: `{report.get('window', '')}`")
     lines.append("")
     lines.append(report.get("description", ""))
@@ -800,6 +737,12 @@ def main() -> None:
     )
 
     parser.add_argument(
+        "--date",
+        default=None,
+        help="Reference date for the report in YYYY-MM-DD format. Defaults to today.",
+    )
+
+    parser.add_argument(
         "--no-save",
         action="store_true",
         help="Build the report but do not save files.",
@@ -807,12 +750,26 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    report = build_macro_news_report(report_type=args.type)
+    reference_dt = None
+
+    if args.date:
+        reference_dt = datetime.fromisoformat(args.date).replace(
+            hour=18,
+            minute=30,
+            second=0,
+            microsecond=0,
+        )
+
+    report = build_macro_news_report(
+        report_type=args.type,
+        reference_dt=reference_dt,
+    )
 
     print("[OK] Macro news report generated")
     print(f"Type: {report['report_type']}")
     print(f"Title: {report['title']}")
     print(f"Window: {report['window']}")
+    print(f"Reference datetime: {report.get('reference_datetime', '')}")
     print(f"News count: {report['summary']['news_count']}")
     print(f"High importance: {report['summary']['high_importance_count']}")
 
