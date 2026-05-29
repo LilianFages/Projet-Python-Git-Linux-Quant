@@ -631,7 +631,6 @@ def render_report_markdown(report: dict[str, Any]) -> str:
     lines.append("")
 
     top_news = report.get("top_news", [])
-
     is_alert_check = report.get("report_type") == "alert-check"
 
     if not top_news:
@@ -641,11 +640,14 @@ def render_report_markdown(report: dict[str, Any]) -> str:
         for i, item in enumerate(top_news, start=1):
             factor = item.get("factor") or infer_report_factor(item)
             score = compute_basic_news_score(item)
+
             lines.append(f"### {i}. {item.get('title', 'Untitled')}")
             lines.append("")
             lines.append(f"- Date: `{item.get('date', '')}`")
+
             if item.get("published_at"):
                 lines.append(f"- Published at: `{item.get('published_at', '')}`")
+
             lines.append(f"- Category: `{item.get('category', '')}`")
             lines.append(f"- Importance: `{item.get('importance', '')}`")
             lines.append(f"- Factor: `{factor}`")
@@ -659,65 +661,88 @@ def render_report_markdown(report: dict[str, Any]) -> str:
             lines.append(f"- Alert candidate: `{'Yes' if item.get('alert_candidate') else 'No'}`")
 
             evidence = item.get("market_evidence", [])
+
             if evidence:
                 lines.append("- Market evidence:")
                 for evidence_item in evidence:
                     lines.append(f"  - {evidence_item}")
+
             lines.append("")
             lines.append(str(item.get("summary", "")))
             lines.append("")
 
-        if is_alert_check:
-            lines.append("## 4. Alert Status")
+    if is_alert_check:
+        lines.append("## 4. Alert Status")
+        lines.append("")
+
+        if not top_news:
+            lines.append("No critical intraday macro alert detected in the current alert-check window.")
             lines.append("")
-
-            if not top_news:
-                lines.append("No critical intraday macro alert detected in the current alert-check window.")
-                lines.append("")
-            else:
-                lines.append("Potential intraday alert candidates detected.")
-                lines.append("")
-
-            flags = report.get("macro_regime", {}).get("flags", [])
-            if flags:
-                lines.append("Current background macro flags remain:")
-                for flag in flags:
-                    lines.append(f"- {flag}")
-                lines.append("")
-
         else:
-            lines.append("## 4. Validated Context")
+            lines.append("Potential intraday alert candidates detected.")
             lines.append("")
 
-            context = report.get("validated_context", [])
+        flags = report.get("macro_regime", {}).get("flags", [])
 
-            if not context:
-                lines.append("No validated macro context available.")
-                lines.append("")
-            else:
-                for i, item in enumerate(context, start=1):
-                    lines.append(f"- **{item.get('title', 'Untitled')}** — {item.get('summary', '')}")
+        if flags:
+            lines.append("Current background macro flags remain:")
+            for flag in flags:
+                lines.append(f"- {flag}")
+            lines.append("")
 
-        return "\n".join(lines)
+    else:
+        lines.append("## 4. Validated Context")
+        lines.append("")
+
+        context = report.get("validated_context", [])
+
+        if not context:
+            lines.append("No validated macro context available.")
+            lines.append("")
+        else:
+            for item in context:
+                lines.append(
+                    f"- **{item.get('title', 'Untitled')}** — {item.get('summary', '')}"
+                )
+
+    return "\n".join(lines)
 
 
 def save_report(report: dict[str, Any]) -> tuple[Path, Path]:
     """
     Sauvegarde le rapport en JSON et Markdown.
+
+    Le nom du fichier utilise la date de référence du rapport,
+    pas la date de génération. Cela permet de rejouer proprement
+    des rapports historiques avec --date.
     """
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     report_type = report.get("report_type", "macro")
-    today = datetime.now().date().isoformat()
 
-    json_path = OUTPUT_DIR / f"{today}_{report_type}_macro_news_report.json"
-    md_path = OUTPUT_DIR / f"{today}_{report_type}_macro_news_report.md"
+    reference_datetime = str(report.get("reference_datetime", "")).strip()
+
+    if reference_datetime:
+        try:
+            report_date = datetime.fromisoformat(reference_datetime).date().isoformat()
+        except Exception:
+            report_date = datetime.now().date().isoformat()
+    else:
+        report_date = datetime.now().date().isoformat()
+
+    json_path = OUTPUT_DIR / f"{report_date}_{report_type}_macro_news_report.json"
+    md_path = OUTPUT_DIR / f"{report_date}_{report_type}_macro_news_report.md"
 
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
 
+    markdown = render_report_markdown(report)
+
+    if markdown is None:
+        markdown = ""
+
     with open(md_path, "w", encoding="utf-8") as f:
-        f.write(render_report_markdown(report))
+        f.write(markdown)
 
     return json_path, md_path
 
