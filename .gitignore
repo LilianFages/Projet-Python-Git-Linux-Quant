@@ -52,3 +52,5 @@ reports/outputs/*
 
 reports/outputs/macro_news/*.json
 reports/outputs/macro_news/*.md
+
+logs/macro_news/*.log
