@@ -1,6 +1,105 @@
 [
   {
+    "date": "2026-05-27",
+    "published_at": "",
+    "category": "Commodities",
+    "importance": "Medium",
+    "title": "The United States is a major energy exporter and importer, especially for petroleum",
+    "summary": "Total energy exports from the United States reached a record 31 quadrillion British thermal units (quads) in 2025, 2% more than the previous record set in 2024. U.S. energy imports were 21 quads, down 5% from 2024. Taken together, net trade—total imports less total exports—reached 11 quads of net exports in 2025, a record and 20% more net exports than the previous record set in 2024.",
+    "source": "EIA Today in Energy",
+    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67724",
+    "tickers": [],
+    "tags": [
+      "EIA",
+      "Energy",
+      "Oil",
+      "Gas",
+      "Commodities",
+      "Inflation Pressure"
+    ],
+    "news_id": "9e7668c8a0483f6f"
+  },
+  {
+    "date": "2026-05-26",
+    "published_at": "",
+    "category": "Central Banks",
+    "importance": "Medium",
+    "title": "Minutes of the Board's discount rate meeting on April 20 and 29, 2026",
+    "summary": "Minutes of the Board's discount rate meeting on April 20 and 29, 2026",
+    "source": "Federal Reserve Press Releases",
+    "url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20260526a.htm",
+    "tickers": [],
+    "tags": [
+      "Fed",
+      "Central Banks",
+      "Rates",
+      "Monetary Policy",
+      "United States"
+    ],
+    "news_id": "65e2b09e4ff32d04"
+  },
+  {
+    "date": "2026-05-26",
+    "published_at": "",
+    "category": "Commodities",
+    "importance": "Medium",
+    "title": "Most planned natural gas pipeline capacity additions in 2026 and 2027 originate in Texas",
+    "summary": "Developers plan to bring approximately 44.9 billion cubic feet per day (Bcf/d) of new pipeline capacity online in the United States in 2026 and 2027, according to our latest Natural Gas Pipeline Projects Tracker. Approximately 70% (31.6 Bcf/d) of this new capacity is already under construction. More than 66% (29.7 Bcf/d) of the capacity additions originate in Texas. Louisiana is second with 19% (8.4 Bcf/d) of total capacity additions.",
+    "source": "EIA Today in Energy",
+    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67707",
+    "tickers": [],
+    "tags": [
+      "EIA",
+      "Energy",
+      "Oil",
+      "Gas",
+      "Commodities",
+      "Inflation Pressure"
+    ],
+    "news_id": "d80759b203d2c59e"
+  },
+  {
+    "date": "2026-05-22",
+    "published_at": "",
+    "category": "Commodities",
+    "importance": "Medium",
+    "title": "The regional differences in gasoline prices this Memorial Day",
+    "summary": "Against the backdrop of a nationwide increase in gasoline prices, regional dynamics including local supply and demand conditions, state fuel specifications, and state taxes influence the different prices drivers see at the pump.",
+    "source": "EIA Today in Energy",
+    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67706",
+    "tickers": [],
+    "tags": [
+      "EIA",
+      "Energy",
+      "Oil",
+      "Gas",
+      "Commodities",
+      "Inflation Pressure"
+    ],
+    "news_id": "df06adefc13c0dcb"
+  },
+  {
+    "date": "2026-05-20",
+    "published_at": "",
+    "category": "Central Banks",
+    "importance": "Medium",
+    "title": "Minutes of the Federal Open Market Committee, April 28-29, 2026",
+    "summary": "Minutes of the Federal Open Market Committee, April 28-29, 2026",
+    "source": "Federal Reserve Press Releases",
+    "url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20260520a.htm",
+    "tickers": [],
+    "tags": [
+      "Fed",
+      "Central Banks",
+      "Rates",
+      "Monetary Policy",
+      "United States"
+    ],
+    "news_id": "e0c8ebd1040289c0"
+  },
+  {
     "date": "2026-05-15",
+    "published_at": "",
     "category": "Commodities",
     "importance": "High",
     "title": "U.S. industrial natural gas consumption expected to hit records in 2026 and 2027",
@@ -20,6 +119,7 @@
   },
   {
     "date": "2026-04-30",
+    "published_at": "",
     "category": "Commodities",
     "importance": "Medium",
     "title": "DOE has released 17.5 million barrels from the Strategic Petroleum Reserve since March",
@@ -39,6 +139,7 @@
   },
   {
     "date": "2026-04-29",
+    "published_at": "",
     "category": "Central Banks",
     "importance": "High",
     "title": "Federal Reserve issues FOMC statement",
@@ -50,12 +151,14 @@
       "Fed",
       "Central Banks",
       "Rates",
-      "Monetary Policy"
+      "Monetary Policy",
+      "United States"
     ],
     "news_id": "6139100ec40faaed"
   },
   {
     "date": "2026-04-29",
+    "published_at": "",
     "category": "Commodities",
     "importance": "Medium",
     "title": "Alaska proved reserves increased in 2024, while nationwide proved reserves fell",
@@ -75,6 +178,7 @@
   },
   {
     "date": "2026-04-28",
+    "published_at": "",
     "category": "Commodities",
     "importance": "High",
     "title": "International LNG prices rise amid Strait of Hormuz closure",
@@ -94,6 +198,7 @@
   },
   {
     "date": "2026-04-24",
+    "published_at": "",
     "category": "Commodities",
     "importance": "High",
     "title": "Brent crude oil spot prices surge past futures price in April",
@@ -113,6 +218,7 @@
   },
   {
     "date": "2026-04-23",
+    "published_at": "",
     "category": "Commodities",
     "importance": "High",
     "title": "The 10th U.S. liquefied natural gas export terminal, Golden Pass, ships first cargo",
@@ -132,6 +238,7 @@
   },
   {
     "date": "2026-04-21",
+    "published_at": "",
     "category": "Commodities",
     "importance": "Medium",
     "title": "Natural gas inventories at the end of winter heating season were near five-year average",
@@ -151,6 +258,7 @@
   },
   {
     "date": "2026-04-20",
+    "published_at": "",
     "category": "Commodities",
     "importance": "High",
     "title": "China, the United States, and Japan hold most strategic oil inventories in 2025",
@@ -170,6 +278,7 @@
   },
   {
     "date": "2026-04-16",
+    "published_at": "",
     "category": "Commodities",
     "importance": "Medium",
     "title": "U.S. natural gas exports to grow nearly 30% by 2027 as LNG facilities ramp up",
@@ -189,6 +298,7 @@
   },
   {
     "date": "2026-04-15",
+    "published_at": "",
     "category": "Commodities",
     "importance": "High",
     "title": "What's in your gasoline? Understanding U.S. motor gasoline formulations",
@@ -207,37 +317,43 @@
     "news_id": "11eb35c692c5627e"
   },
   {
-    "date": "2026-04-14",
-    "category": "Central Banks",
+    "date": "2026-04-10",
+    "published_at": "",
+    "category": "Commodities",
     "importance": "Medium",
-    "title": "Minutes of the Board’s discount rate meetings on February 9 and March 18, 2026",
-    "summary": "Minutes of the Board’s discount rate meetings on February 9 and March 18, 2026",
-    "source": "Federal Reserve Press Releases",
-    "url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20260414a.htm",
+    "title": "Increasing fuel efficiency leads to decreasing gasoline consumption",
+    "summary": "Annual motor gasoline consumption in the United States decreased in 2025 even as vehicle miles traveled (VMT) increased because of increasing fuel efficiency, a trend we forecast will continue in 2026 and 2027. U.S. motor gasoline consumption averaged 8.9 million barrels per day (b/d) in 2025, 1% less than 2024 and 4% less than pre-pandemic demand in 2019. In our April Short-Term Energy Outlook (STEO), we estimate that motor gasoline consumption will continue to decline as forecast fuel efficiency increases and VMT growth slows.",
+    "source": "EIA Today in Energy",
+    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67426",
     "tickers": [],
     "tags": [
-      "Fed",
-      "Central Banks",
-      "Rates",
-      "Monetary Policy"
+      "EIA",
+      "Energy",
+      "Oil",
+      "Gas",
+      "Commodities",
+      "Inflation Pressure"
     ],
-    "news_id": "05bc0381d778d845"
+    "news_id": "b8bc712672ab9b0a"
   },
   {
     "date": "2026-04-08",
-    "category": "Central Banks",
+    "published_at": "",
+    "category": "Commodities",
     "importance": "Medium",
-    "title": "Minutes of the Federal Open Market Committee, March 17–18, 2026",
-    "summary": "Minutes of the Federal Open Market Committee, March 17–18, 2026",
-    "source": "Federal Reserve Press Releases",
-    "url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20260408a.htm",
+    "title": "Domestic and international demand drive natural gas production growth",
+    "summary": "In our Annual Energy Outlook 2026 (AEO2026), we project U.S. dry natural gas production, which accounted for 38% of total U.S. energy production in 2025, will increase significantly over the next several decades, meeting growing domestic and international natural gas demand.",
+    "source": "EIA Today in Energy",
+    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67425",
     "tickers": [],
     "tags": [
-      "Fed",
-      "Central Banks",
-      "Rates",
-      "Monetary Policy"
+      "EIA",
+      "Energy",
+      "Oil",
+      "Gas",
+      "Commodities",
+      "Inflation Pressure"
     ],
-    "news_id": "84c484e7df71aac2"
+    "news_id": "aaeb4248a335b002"
   }
 ]
