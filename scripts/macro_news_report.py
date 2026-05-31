@@ -811,6 +811,25 @@ def main() -> None:
     print(f"Reference datetime: {report.get('reference_datetime', '')}")
     print(f"News count: {report['summary']['news_count']}")
     print(f"High importance: {report['summary']['high_importance_count']}")
+    print(f"Critical priority: {report['summary'].get('critical_count', 0)}")
+    print(f"High priority: {report['summary'].get('high_priority_count', 0)}")
+    print(f"Alert candidates: {report['summary'].get('alert_candidate_count', 0)}")
+
+    top_news = report.get("top_news", [])
+
+    if top_news:
+        print("Top scored news:")
+        for item in top_news[:5]:
+            print(
+                "- "
+                f"{item.get('date', '')} | "
+                f"{item.get('final_priority', 'N/A')} | "
+                f"score={item.get('final_score', 'N/A')} | "
+                f"nature={item.get('event_nature', 'N/A')} | "
+                f"factor={item.get('factor', 'N/A')} | "
+                f"alert={item.get('alert_candidate', False)} | "
+                f"{item.get('title', '')}"
+            )
 
     if not args.no_save:
         json_path, md_path = save_report(report)
