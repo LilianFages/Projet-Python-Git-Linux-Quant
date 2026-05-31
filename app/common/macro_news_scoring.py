@@ -532,7 +532,7 @@ def cross_signal_confirmation_score(
 
     if event_nature in {"shock", "policy", "data_release"} and market_confirmation in {"Moderate", "Strong"}:
         score += 1
-        details.append(f"{event_nature} event is confirmed by market action.")
+        details.append(f"{event_nature.title()} event is confirmed by market action.")
 
     if event_nature in {"structural", "background"}:
         score = min(score, 1)

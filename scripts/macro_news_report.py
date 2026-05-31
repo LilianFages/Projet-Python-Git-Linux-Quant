@@ -578,67 +578,129 @@ def build_macro_news_report(
 
 def render_report_markdown(report: dict[str, Any]) -> str:
     """
-    Rend un rapport macro-news en Markdown.
+    Rend un rapport macro-news en Markdown avec une structure plus lisible.
     """
-    lines = []
+    lines: list[str] = []
 
-    lines.append(f"# {report.get('title', 'Macro News Report')}")
-    lines.append("")
-    lines.append(f"Generated at: `{report.get('generated_at', '')}`")
-    lines.append(f"Reference datetime: `{report.get('reference_datetime', '')}`")
-    lines.append(f"Window: `{report.get('window', '')}`")
-    lines.append("")
-    lines.append(report.get("description", ""))
-    lines.append("")
+    title = report.get("title", "Macro News Report")
+    generated_at = report.get("generated_at", "")
+    reference_datetime = report.get("reference_datetime", "")
+    window = report.get("window", "")
+    description = report.get("description", "")
 
-    regime = report.get("macro_regime", {})
-    lines.append("## 1. Macro Regime")
-    lines.append("")
-    lines.append(f"- Regime: **{regime.get('regime', 'N/A')}**")
-    lines.append(f"- Score: `{regime.get('score', 'N/A')}`")
-
-    flags = regime.get("flags", [])
-    lines.append(f"- Flags: {', '.join(flags) if flags else 'None'}")
-    lines.append("")
-
-    summary = report.get("summary", {})
-
-    lines.append("## 2. Executive Summary")
-    lines.append("")
-    lines.append(f"- Live news count: `{summary.get('news_count', 0)}`")
-    lines.append(f"- High-importance items: `{summary.get('high_importance_count', 0)}`")
-    lines.append(f"- Validated context items: `{summary.get('validated_context_count', 0)}`")
-    lines.append(f"- Critical-priority items: `{summary.get('critical_count', 0)}`")
-    lines.append(f"- High-priority items: `{summary.get('high_priority_count', 0)}`")
-    lines.append(f"- Alert candidates: `{summary.get('alert_candidate_count', 0)}`")
-    lines.append("")
-
-    lines.append("### Interpretation")
-    lines.append("")
-    for item in summary.get("interpretation", []):
-        lines.append(f"- {item}")
-    lines.append("")
-
-    lines.append("### Factor Breakdown")
-    lines.append("")
-    for item in summary.get("top_factors", []):
-        lines.append(f"- {item}")
-    lines.append("")
-
-    lines.append("### Sources")
-    lines.append("")
-    for item in summary.get("sources", []):
-        lines.append(f"- {item}")
-    lines.append("")
-
-    lines.append("## 3. Top Live News")
-    lines.append("")
-
-    top_news = report.get("top_news", [])
+    regime = report.get("macro_regime", {}) or {}
+    summary = report.get("summary", {}) or {}
+    top_news = report.get("top_news", []) or []
+    context = report.get("validated_context", []) or []
     is_alert_check = report.get("report_type") == "alert-check"
+
+    # ------------------------------------------------------------------
+    # Header
+    # ------------------------------------------------------------------
+    lines.append(f"# {title}")
+    lines.append("")
+    lines.append(description)
+    lines.append("")
+
+    lines.append("## 1. Report Metadata")
+    lines.append("")
+    lines.append("| Field | Value |")
+    lines.append("|---|---|")
+    lines.append(f"| Generated at | `{generated_at}` |")
+    lines.append(f"| Reference datetime | `{reference_datetime}` |")
+    lines.append(f"| Window | `{window}` |")
+    lines.append("")
+
+    # ------------------------------------------------------------------
+    # Macro regime
+    # ------------------------------------------------------------------
+    flags = regime.get("flags", []) or []
+    flags_text = ", ".join(flags) if flags else "None"
+
+    lines.append("## 2. Macro Regime")
+    lines.append("")
+    lines.append("| Metric | Value |")
+    lines.append("|---|---|")
+    lines.append(f"| Regime | **{regime.get('regime', 'N/A')}** |")
+    lines.append(f"| Score | `{regime.get('score', 'N/A')}` |")
+    lines.append(f"| Active flags | {flags_text} |")
+    lines.append("")
+
+    # ------------------------------------------------------------------
+    # Executive summary
+    # ------------------------------------------------------------------
+    lines.append("## 3. Executive Snapshot")
+    lines.append("")
+    lines.append("| Metric | Value |")
+    lines.append("|---|---:|")
+    lines.append(f"| Live news count | `{summary.get('news_count', 0)}` |")
+    lines.append(f"| High-importance items | `{summary.get('high_importance_count', 0)}` |")
+    lines.append(f"| Validated context items | `{summary.get('validated_context_count', 0)}` |")
+    lines.append(f"| Critical-priority items | `{summary.get('critical_count', 0)}` |")
+    lines.append(f"| High-priority items | `{summary.get('high_priority_count', 0)}` |")
+    lines.append(f"| Alert candidates | `{summary.get('alert_candidate_count', 0)}` |")
+    lines.append("")
+
+    interpretation = summary.get("interpretation", []) or []
+    if interpretation:
+        lines.append("### Interpretation")
+        lines.append("")
+        for item in interpretation:
+            lines.append(f"- {item}")
+        lines.append("")
+
+    top_factors = summary.get("top_factors", []) or []
+    if top_factors:
+        lines.append("### Factor Breakdown")
+        lines.append("")
+        for item in top_factors:
+            lines.append(f"- {item}")
+        lines.append("")
+
+    sources = summary.get("sources", []) or []
+    if sources:
+        lines.append("### Sources")
+        lines.append("")
+        for item in sources:
+            lines.append(f"- {item}")
+        lines.append("")
+
+    # ------------------------------------------------------------------
+    # Top news summary table
+    # ------------------------------------------------------------------
+    lines.append("## 4. Top Live News Summary")
+    lines.append("")
 
     if not top_news:
         lines.append("No live macro news detected for this report window.")
+        lines.append("")
+    else:
+        lines.append("| Date | Priority | Score | Nature | Factor | Alert | Title |")
+        lines.append("|---|---|---:|---|---|---|---|")
+
+        for item in top_news:
+            title_clean = str(item.get("title", "Untitled")).replace("|", "\\|")
+            lines.append(
+                "| "
+                f"{item.get('date', '')} | "
+                f"{item.get('final_priority', 'N/A')} | "
+                f"{item.get('final_score', item.get('score', 0))} | "
+                f"{item.get('event_nature', 'N/A')} | "
+                f"{item.get('factor', 'N/A')} | "
+                f"{'Yes' if item.get('alert_candidate') else 'No'} | "
+                f"{title_clean} |"
+            )
+
+        lines.append("")
+
+    # ------------------------------------------------------------------
+    # Detailed top news
+    # ------------------------------------------------------------------
+    lines.append("## 5. Detailed Live News")
+    lines.append("")
+
+    if not top_news:
+        lines.append("No detailed live news available.")
         lines.append("")
     else:
         for i, item in enumerate(top_news, start=1):
@@ -647,46 +709,58 @@ def render_report_markdown(report: dict[str, Any]) -> str:
 
             lines.append(f"### {i}. {item.get('title', 'Untitled')}")
             lines.append("")
-            lines.append(f"- Date: `{item.get('date', '')}`")
+
+            lines.append("| Field | Value |")
+            lines.append("|---|---|")
+            lines.append(f"| Date | `{item.get('date', '')}` |")
 
             if item.get("published_at"):
-                lines.append(f"- Published at: `{item.get('published_at', '')}`")
+                lines.append(f"| Published at | `{item.get('published_at', '')}` |")
 
-            lines.append(f"- Category: `{item.get('category', '')}`")
-            lines.append(f"- Importance: `{item.get('importance', '')}`")
-            lines.append(f"- Factor: `{factor}`")
-            lines.append(f"- Source: `{item.get('source', '')}`")
-            lines.append(f"- Source score: `{item.get('source_score', 0)}`")
-            lines.append(f"- Cross-signal score: `{item.get('cross_signal_score', 0)}`")
-            lines.append(f"- Score: `{score}`")
-            lines.append(f"- Direction: `{item.get('direction', 'N/A')}`")
-            lines.append(f"- Event nature: `{item.get('event_nature', 'N/A')}`")
-            lines.append(f"- Market confirmation: `{item.get('market_confirmation', 'N/A')}`")
-            lines.append(f"- Market score: `{item.get('market_score', 0)}`")
-            lines.append(f"- Final priority: `{item.get('final_priority', 'N/A')}`")
-            lines.append(f"- Final score: `{item.get('final_score', score)}`")
-            lines.append(f"- Alert candidate: `{'Yes' if item.get('alert_candidate') else 'No'}`")
+            lines.append(f"| Category | `{item.get('category', '')}` |")
+            lines.append(f"| Importance | `{item.get('importance', '')}` |")
+            lines.append(f"| Factor | `{factor}` |")
+            lines.append(f"| Direction | `{item.get('direction', 'N/A')}` |")
+            lines.append(f"| Event nature | `{item.get('event_nature', 'N/A')}` |")
+            lines.append(f"| Source | `{item.get('source', '')}` |")
+            lines.append(f"| Source score | `{item.get('source_score', 0)}` |")
+            lines.append(f"| Market confirmation | `{item.get('market_confirmation', 'N/A')}` |")
+            lines.append(f"| Market score | `{item.get('market_score', 0)}` |")
+            lines.append(f"| Cross-signal score | `{item.get('cross_signal_score', 0)}` |")
+            lines.append(f"| Importance score | `{item.get('impact_score', score)}` |")
+            lines.append(f"| Final priority | **{item.get('final_priority', 'N/A')}** |")
+            lines.append(f"| Final score | `{item.get('final_score', score)}` |")
+            lines.append(f"| Alert candidate | `{'Yes' if item.get('alert_candidate') else 'No'}` |")
+            lines.append("")
 
-            evidence = item.get("market_evidence", [])
-
+            evidence = item.get("market_evidence", []) or []
             if evidence:
-                lines.append("- Market evidence:")
+                lines.append("#### Market Evidence")
+                lines.append("")
                 for evidence_item in evidence:
-                    lines.append(f"  - {evidence_item}")
+                    lines.append(f"- {evidence_item}")
+                lines.append("")
 
-            cross_evidence = item.get("cross_signal_evidence", [])
-
+            cross_evidence = item.get("cross_signal_evidence", []) or []
             if cross_evidence:
-                lines.append("- Cross-signal evidence:")
+                lines.append("#### Cross-Signal Evidence")
+                lines.append("")
                 for evidence_item in cross_evidence:
-                    lines.append(f"  - {evidence_item}")
+                    lines.append(f"- {evidence_item}")
+                lines.append("")
 
-            lines.append("")
-            lines.append(str(item.get("summary", "")))
-            lines.append("")
+            summary_text = str(item.get("summary", "")).strip()
+            if summary_text:
+                lines.append("#### Summary")
+                lines.append("")
+                lines.append(summary_text)
+                lines.append("")
 
+    # ------------------------------------------------------------------
+    # Alert status / validated context
+    # ------------------------------------------------------------------
     if is_alert_check:
-        lines.append("## 4. Alert Status")
+        lines.append("## 6. Alert Status")
         lines.append("")
 
         if not top_news:
@@ -696,19 +770,16 @@ def render_report_markdown(report: dict[str, Any]) -> str:
             lines.append("Potential intraday alert candidates detected.")
             lines.append("")
 
-        flags = report.get("macro_regime", {}).get("flags", [])
-
         if flags:
-            lines.append("Current background macro flags remain:")
+            lines.append("### Background Macro Flags")
+            lines.append("")
             for flag in flags:
                 lines.append(f"- {flag}")
             lines.append("")
 
     else:
-        lines.append("## 4. Validated Context")
+        lines.append("## 6. Validated Context")
         lines.append("")
-
-        context = report.get("validated_context", [])
 
         if not context:
             lines.append("No validated macro context available.")
@@ -716,8 +787,10 @@ def render_report_markdown(report: dict[str, Any]) -> str:
         else:
             for item in context:
                 lines.append(
-                    f"- **{item.get('title', 'Untitled')}** — {item.get('summary', '')}"
+                    f"- **{item.get('title', 'Untitled')}** — "
+                    f"{item.get('summary', '')}"
                 )
+            lines.append("")
 
     return "\n".join(lines)
 
