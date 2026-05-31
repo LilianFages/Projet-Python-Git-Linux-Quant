@@ -330,6 +330,115 @@ def infer_market_confirmation(
     return label, int(score), details[:3]
 
 
+def infer_event_nature(event: dict[str, Any]) -> str:
+    """
+    Classe la nature d'un événement macro.
+
+    Objectif :
+    - shock : événement de choc / rupture / surprise ;
+    - policy : décision ou communication de banque centrale / politique monétaire ;
+    - data_release : publication macro standard ;
+    - structural : tendance structurelle / forecast long terme ;
+    - background : contexte général peu actionnable.
+    """
+    category = str(event.get("category", "")).lower()
+    title = str(event.get("title", "")).lower()
+    summary = str(event.get("summary", "")).lower()
+    source = str(event.get("source", "")).lower()
+    tags = " ".join(str(x).lower() for x in event.get("tags", []) if isinstance(x, str))
+
+    text = f"{category} {title} {summary} {source} {tags}"
+
+    shock_keywords = [
+        "surprise",
+        "unexpected",
+        "emergency",
+        "shock",
+        "crisis",
+        "default",
+        "downgrade",
+        "war",
+        "attack",
+        "conflict",
+        "sanctions",
+        "supply disruption",
+        "disruption",
+        "closure",
+        "strait of hormuz",
+        "hormuz",
+        "prices surge",
+        "spot prices surge",
+        "spike",
+        "record high",
+        "inventory draw",
+        "inventories fell",
+        "stocks fell",
+    ]
+
+    policy_keywords = [
+        "fomc statement",
+        "fomc minutes",
+        "monetary policy decision",
+        "rate decision",
+        "interest rate decision",
+        "rate cut",
+        "rate hike",
+        "raises rates",
+        "cuts rates",
+        "ecb monetary policy",
+        "fed funds",
+        "discount rate",
+        "central bank",
+    ]
+
+    data_release_keywords = [
+        "cpi",
+        "ppi",
+        "pce",
+        "gdp",
+        "pmi",
+        "nfp",
+        "payrolls",
+        "jobs report",
+        "employment",
+        "retail sales",
+        "inflation report",
+        "inventories",
+        "stocks report",
+        "eia petroleum status report",
+    ]
+
+    structural_keywords = [
+        "forecast",
+        "expected to",
+        "through 2027",
+        "in 2026 and 2027",
+        "capacity additions",
+        "reserves",
+        "production outlook",
+        "long-term",
+        "structural",
+        "trend",
+        "major exporter",
+        "major importer",
+        "pipeline capacity",
+        "energy outlook",
+    ]
+
+    if any(keyword in text for keyword in shock_keywords):
+        return "shock"
+
+    if any(keyword in text for keyword in policy_keywords):
+        return "policy"
+
+    if any(keyword in text for keyword in data_release_keywords):
+        return "data_release"
+
+    if any(keyword in text for keyword in structural_keywords):
+        return "structural"
+
+    return "background"
+
 # ---------------------------------------------------------------------
 # Final priority / alert logic
 # ---------------------------------------------------------------------
@@ -337,21 +446,33 @@ def final_priority_from_scores(
     impact_score: int,
     market_confirmation_score: int,
     direction: str,
+    event_nature: str | None = None,
 ) -> tuple[str, int]:
     """
-    Combine importance textuelle + confirmation marché.
+    Combine importance textuelle + confirmation marché + nature de l'événement.
 
-    Score final :
-    - impact_score vient de High/Medium/Low
-    - market_confirmation_score vient des mouvements cross-asset
-    - direction adverse peut renforcer le niveau d'alerte
+    La nature de l'événement évite de surclasser une news structurelle
+    en Critical uniquement parce que les marchés confirment le facteur.
     """
+    event_nature = str(event_nature or "background")
+
     final_score = int(impact_score) + int(market_confirmation_score)
 
     if direction in {"Pressure Up", "Negative"}:
         final_score += 1
 
-    if final_score >= 6:
+    if event_nature == "shock":
+        final_score += 2
+    elif event_nature == "policy":
+        final_score += 1
+    elif event_nature == "data_release":
+        final_score += 1
+    elif event_nature == "structural":
+        final_score -= 1
+
+    final_score = max(final_score, 0)
+
+    if final_score >= 7:
         return "Critical", final_score
 
     if final_score >= 4:
@@ -424,19 +545,23 @@ def is_alert_candidate(
 
     Règle stricte :
     - Critical => alerte ;
-    - High => alerte seulement si mot-clé de choc/surprise/disruption ;
-    - les signaux structurels High + Strong restent visibles comme High,
-      mais ne déclenchent pas d'alerte.
+    - High => alerte seulement si nature shock ou mot-clé de choc ;
+    - structural/background ne déclenchent pas d'alerte.
     """
     priority = str(priority or "")
     final_score = int(final_score or 0)
+    event = event or {}
 
-    has_shock = event_has_shock_keywords(event or {})
+    event_nature = str(event.get("event_nature") or infer_event_nature(event))
+    has_shock = event_has_shock_keywords(event)
 
-    if priority == "Critical" and final_score >= 6:
+    if event_nature in {"structural", "background"}:
+        return False
+
+    if priority == "Critical" and final_score >= 7:
         return True
 
-    if priority == "High" and has_shock:
+    if priority == "High" and (event_nature == "shock" or has_shock):
         return True
 
     return False
@@ -455,6 +580,7 @@ def enrich_event_for_scoring(
     factor = infer_event_factor(enriched)
     direction = infer_event_direction(enriched, factor)
     impact_score = importance_to_score(enriched.get("importance"))
+    event_nature = infer_event_nature(enriched)
 
     confirmation_label, confirmation_score, confirmation_details = infer_market_confirmation(
         factor=factor,
@@ -465,10 +591,12 @@ def enrich_event_for_scoring(
         impact_score=impact_score,
         market_confirmation_score=confirmation_score,
         direction=direction,
+        event_nature=event_nature,
     )
 
     enriched["factor"] = factor
     enriched["direction"] = direction
+    enriched["event_nature"] = event_nature
     enriched["impact_score"] = impact_score
     enriched["market_confirmation"] = confirmation_label
     enriched["market_score"] = confirmation_score

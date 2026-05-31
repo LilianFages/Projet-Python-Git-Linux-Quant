@@ -1916,6 +1916,7 @@ def prepare_event_impact_board(
 
         factor = scored_event.get("factor", "Macro")
         direction = scored_event.get("direction", "Mixed")
+        event_nature = scored_event.get("event_nature", "background")
         importance = scored_event.get("importance", "Low")
         impact_score = scored_event.get("impact_score", importance_to_score(importance))
         confirmation_label = scored_event.get("market_confirmation", "Weak")
@@ -1932,6 +1933,7 @@ def prepare_event_impact_board(
             "Category": event.get("category", "Macro"),
             "Factor": factor,
             "Direction": direction,
+            "Event Nature": event_nature,
             "Impact Score": impact_score,
             "Market Confirmation": confirmation_label,
             "Market Score": confirmation_score,
