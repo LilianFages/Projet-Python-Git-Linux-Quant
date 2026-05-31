@@ -398,7 +398,11 @@ def enrich_news_item_for_report(
     Ajoute facteur, direction, market confirmation et priorité finale.
     Wrapper rapport autour du scoring commun.
     """
-    return enrich_event_for_scoring(item, macro_df=macro_df)
+    return enrich_event_for_scoring(
+        item,
+        macro_df=macro_df,
+        macro_regime=compute_macro_regime(macro_df),
+    )
 
 
 def compute_basic_news_score(item: dict[str, Any]) -> int:
@@ -653,6 +657,7 @@ def render_report_markdown(report: dict[str, Any]) -> str:
             lines.append(f"- Factor: `{factor}`")
             lines.append(f"- Source: `{item.get('source', '')}`")
             lines.append(f"- Source score: `{item.get('source_score', 0)}`")
+            lines.append(f"- Cross-signal score: `{item.get('cross_signal_score', 0)}`")
             lines.append(f"- Score: `{score}`")
             lines.append(f"- Direction: `{item.get('direction', 'N/A')}`")
             lines.append(f"- Event nature: `{item.get('event_nature', 'N/A')}`")
@@ -667,6 +672,13 @@ def render_report_markdown(report: dict[str, Any]) -> str:
             if evidence:
                 lines.append("- Market evidence:")
                 for evidence_item in evidence:
+                    lines.append(f"  - {evidence_item}")
+
+            cross_evidence = item.get("cross_signal_evidence", [])
+
+            if cross_evidence:
+                lines.append("- Cross-signal evidence:")
+                for evidence_item in cross_evidence:
                     lines.append(f"  - {evidence_item}")
 
             lines.append("")

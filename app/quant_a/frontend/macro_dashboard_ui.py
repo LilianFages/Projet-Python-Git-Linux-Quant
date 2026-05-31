@@ -1876,6 +1876,7 @@ def render_macro_events_center(
             validated_events=events,
             news_events=news,
             macro_df=macro_df,
+            macro_regime=macro_regime,
         )
 
 # ---------------------------------------------------------------------
@@ -1885,6 +1886,7 @@ def prepare_event_impact_board(
     validated_events: list[dict[str, Any]],
     news_events: list[dict[str, Any]],
     macro_df: pd.DataFrame | None = None,
+    macro_regime: dict[str, Any] | None = None,
 ) -> pd.DataFrame:
     """
     Prépare un tableau combiné d'impact macro events/news.
@@ -1912,7 +1914,11 @@ def prepare_event_impact_board(
         scored_event = enrich_event_for_scoring(
             event,
             macro_df=macro_df if macro_df is not None else pd.DataFrame(),
+            macro_regime=macro_regime,
         )
+
+        cross_signal_score = scored_event.get("cross_signal_score", 0)
+        cross_signal_evidence = scored_event.get("cross_signal_evidence", [])
 
         factor = scored_event.get("factor", "Macro")
         direction = scored_event.get("direction", "Mixed")
@@ -1942,6 +1948,8 @@ def prepare_event_impact_board(
             "Final Score": final_score,
             "Alert Candidate": "Yes" if alert_candidate else "No",
             "Market Evidence": " | ".join(confirmation_details),
+            "Cross Signal Score": cross_signal_score,
+            "Cross Signal Evidence": " | ".join(cross_signal_evidence),
             "Title": event.get("title", ""),
             "Source": event.get("source", ""),
             "Source Score": source_score
@@ -2014,6 +2022,7 @@ def render_event_impact_board(
     validated_events: list[dict[str, Any]],
     news_events: list[dict[str, Any]],
     macro_df: pd.DataFrame | None = None,
+    macro_regime: dict[str, Any] | None = None,
 ) -> None:
     """
     Affiche un board d'impact pour les événements/news macro.
@@ -2022,6 +2031,7 @@ def render_event_impact_board(
         validated_events=validated_events,
         news_events=news_events,
         macro_df=macro_df,
+        macro_regime=macro_regime,
     )
 
     if impact_df.empty:

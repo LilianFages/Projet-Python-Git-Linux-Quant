@@ -486,6 +486,49 @@ def source_reliability_score(source: Any) -> int:
 
     return 0
 
+def cross_signal_confirmation_score(
+    factor: str,
+    event_nature: str,
+    market_confirmation: str,
+    macro_regime: dict[str, Any] | None = None,
+) -> tuple[int, list[str]]:
+    """
+    Ajoute un score de confirmation croisée entre :
+    - facteur de la news ;
+    - confirmation marché ;
+    - flags du régime macro.
+
+    Objectif :
+    renforcer une news quand elle est cohérente avec le régime macro courant,
+    sans déclencher automatiquement une alerte.
+    """
+    factor = str(factor or "")
+    event_nature = str(event_nature or "background")
+    market_confirmation = str(market_confirmation or "")
+
+    macro_regime = macro_regime or {}
+    flags = macro_regime.get("flags", []) or []
+
+    score = 0
+    details: list[str] = []
+
+    if factor in flags:
+        score += 1
+        details.append(f"{factor} is also active in macro regime flags.")
+
+    if market_confirmation == "Strong":
+        score += 1
+        details.append("Market confirmation is strong.")
+
+    if event_nature in {"shock", "policy", "data_release"} and market_confirmation in {"Moderate", "Strong"}:
+        score += 1
+        details.append(f"{event_nature} event is confirmed by market action.")
+
+    if event_nature in {"structural", "background"}:
+        score = min(score, 1)
+
+    return int(score), details[:3]
+
 # ---------------------------------------------------------------------
 # Final priority / alert logic
 # ---------------------------------------------------------------------
@@ -495,6 +538,7 @@ def final_priority_from_scores(
     direction: str,
     event_nature: str | None = None,
     source_score: int = 0,
+    cross_signal_score: int = 0,
 ) -> tuple[str, int]:
     """
     Combine importance textuelle + confirmation marché + nature de l'événement.
@@ -504,7 +548,12 @@ def final_priority_from_scores(
     """
     event_nature = str(event_nature or "background")
 
-    final_score = int(impact_score) + int(market_confirmation_score) +  int(source_score)
+    final_score = (
+        int(impact_score)
+        + int(market_confirmation_score)
+        + int(source_score)
+        + int(cross_signal_score)
+    )
 
     if direction in {"Pressure Up", "Negative"}:
         final_score += 1
@@ -618,41 +667,61 @@ def is_alert_candidate(
 def enrich_event_for_scoring(
     event: dict[str, Any],
     macro_df: pd.DataFrame | None = None,
+    macro_regime: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    Ajoute factor, direction, impact score, market confirmation,
+    Ajoute factor, direction, event nature, source score,
+    market confirmation, cross-signal confirmation,
     final priority et alert candidate à une news/event.
     """
     enriched = dict(event)
 
+    # 1. Classification de base
     factor = infer_event_factor(enriched)
     direction = infer_event_direction(enriched, factor)
-    impact_score = importance_to_score(enriched.get("importance"))
     event_nature = infer_event_nature(enriched)
     source_score = source_reliability_score(enriched.get("source"))
+    impact_score = importance_to_score(enriched.get("importance"))
 
+    # 2. Confirmation marché
     confirmation_label, confirmation_score, confirmation_details = infer_market_confirmation(
         factor=factor,
         macro_df=macro_df if macro_df is not None else pd.DataFrame(),
     )
 
+    # 3. Confirmation croisée avec le régime macro
+    cross_signal_score, cross_signal_evidence = cross_signal_confirmation_score(
+        factor=factor,
+        event_nature=event_nature,
+        market_confirmation=confirmation_label,
+        macro_regime=macro_regime,
+    )
+
+    # 4. Score final
     final_priority, final_score = final_priority_from_scores(
         impact_score=impact_score,
         market_confirmation_score=confirmation_score,
         direction=direction,
         event_nature=event_nature,
         source_score=source_score,
+        cross_signal_score=cross_signal_score,
     )
 
+    # 5. Champs enrichis
     enriched["factor"] = factor
     enriched["direction"] = direction
     enriched["event_nature"] = event_nature
+    enriched["source_score"] = source_score
+    enriched["cross_signal_score"] = cross_signal_score
+    enriched["cross_signal_evidence"] = cross_signal_evidence
     enriched["impact_score"] = impact_score
     enriched["market_confirmation"] = confirmation_label
     enriched["market_score"] = confirmation_score
     enriched["market_evidence"] = confirmation_details
     enriched["final_priority"] = final_priority
     enriched["final_score"] = final_score
+
+    # 6. Alerte après avoir ajouté event_nature à enriched
     enriched["alert_candidate"] = is_alert_candidate(
         priority=final_priority,
         final_score=final_score,
