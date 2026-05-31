@@ -375,6 +375,16 @@ def infer_event_nature(event: dict[str, Any]) -> str:
         "stocks fell",
     ]
 
+    policy_background_keywords = [
+        "minutes of the board's discount rate meeting",
+        "minutes of the board’s discount rate meeting",
+        "discount rate meeting",
+        "discount rate meetings",
+    ]
+
+    if any(keyword in text for keyword in policy_background_keywords):
+        return "background"
+
     policy_keywords = [
         "fomc statement",
         "fomc minutes",
@@ -528,6 +538,68 @@ def cross_signal_confirmation_score(
         score = min(score, 1)
 
     return int(score), details[:3]
+
+def cap_priority_by_event_nature(
+    priority: str,
+    final_score: int,
+    event_nature: str,
+    event: dict[str, Any] | None = None,
+) -> tuple[str, int]:
+    """
+    Empêche les événements structurels/background d'être surclassés
+    uniquement par source_score + market confirmation + cross-signal.
+
+    Règles :
+    - shock : pas de cap ;
+    - policy : Critical seulement pour décision/statement, pas minutes génériques ;
+    - data_release : Critical possible ;
+    - structural : max High ;
+    - background : max Medium.
+    """
+    event_nature = str(event_nature or "background")
+    event = event or {}
+
+    title = str(event.get("title", "")).lower()
+    summary = str(event.get("summary", "")).lower()
+    text = f"{title} {summary}"
+
+    if event_nature == "shock":
+        return priority, final_score
+
+    if event_nature == "data_release":
+        return priority, final_score
+
+    if event_nature == "policy":
+        critical_policy_keywords = [
+            "fomc statement",
+            "monetary policy decision",
+            "rate decision",
+            "interest rate decision",
+            "rate hike",
+            "rate cut",
+            "raises rates",
+            "cuts rates",
+            "emergency",
+            "unexpected",
+            "surprise",
+        ]
+
+        if priority == "Critical" and not any(k in text for k in critical_policy_keywords):
+            return "High", min(final_score, 6)
+
+        return priority, final_score
+
+    if event_nature == "structural":
+        if priority == "Critical":
+            return "High", min(final_score, 6)
+        return priority, final_score
+
+    if event_nature == "background":
+        if priority in {"Critical", "High"}:
+            return "Medium", min(final_score, 3)
+        return priority, final_score
+
+    return priority, final_score
 
 # ---------------------------------------------------------------------
 # Final priority / alert logic
@@ -705,6 +777,13 @@ def enrich_event_for_scoring(
         event_nature=event_nature,
         source_score=source_score,
         cross_signal_score=cross_signal_score,
+    )
+
+    final_priority, final_score = cap_priority_by_event_nature(
+        priority=final_priority,
+        final_score=final_score,
+        event_nature=event_nature,
+        event=enriched,
     )
 
     # 5. Champs enrichis
