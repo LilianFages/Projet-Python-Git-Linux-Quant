@@ -241,6 +241,199 @@ def load_macro_news_report_json(markdown_path: Path) -> dict:
     return _read_json(get_sidecar_json_path(markdown_path))
 
 
+# ---------------------------------------------------------------------
+# Macro News Report Status Panel
+# ---------------------------------------------------------------------
+def latest_macro_news_report_for_type(report_type: str) -> Path | None:
+    """
+    Retourne le dernier rapport Markdown disponible pour un type donné.
+    """
+    files = list_macro_news_report_files(report_type=report_type)
+
+    if not files:
+        return None
+
+    return files[0]
+
+
+def parse_report_reference_date(report_json: dict, fallback_path: Path | None = None) -> str:
+    """
+    Déduit la date de référence d'un rapport.
+    Priorité :
+    - reference_datetime dans le JSON ;
+    - préfixe YYYY-MM-DD du nom de fichier.
+    """
+    reference_datetime = str(report_json.get("reference_datetime", "")).strip()
+
+    if reference_datetime:
+        try:
+            return datetime.fromisoformat(reference_datetime).date().isoformat()
+        except Exception:
+            pass
+
+    if fallback_path is not None:
+        try:
+            return fallback_path.name[:10]
+        except Exception:
+            pass
+
+    return ""
+
+
+def expected_report_status(report_type: str, latest_date: str) -> str:
+    """
+    Statut simple du rapport :
+    - Missing : aucun rapport trouvé ;
+    - OK : dernier rapport daté d'aujourd'hui ;
+    - Stale : rapport disponible mais pas daté d'aujourd'hui.
+
+    Cette règle est volontairement simple pour préparer le futur monitoring cron.
+    """
+    if not latest_date:
+        return "Missing"
+
+    today = datetime.now().date().isoformat()
+
+    if latest_date == today:
+        return "OK"
+
+    return "Stale"
+
+
+def build_macro_news_report_status_table() -> pd.DataFrame:
+    """
+    Construit un tableau de statut des rapports macro-news attendus.
+    """
+    rows = []
+
+    configs = [
+        {
+            "Report": "Morning Macro Brief",
+            "Type": "morning",
+            "Expected Window": "overnight",
+            "Expected Time": "08:00",
+        },
+        {
+            "Report": "Midday Macro Update",
+            "Type": "midday",
+            "Expected Window": "morning",
+            "Expected Time": "12:30",
+        },
+        {
+            "Report": "Evening Macro Wrap",
+            "Type": "evening",
+            "Expected Window": "full-day",
+            "Expected Time": "18:30",
+        },
+        {
+            "Report": "Intraday Alert Check",
+            "Type": "alert-check",
+            "Expected Window": "alert-check",
+            "Expected Time": "Every 30 min",
+        },
+    ]
+
+    for cfg in configs:
+        report_type = cfg["Type"]
+        latest_path = latest_macro_news_report_for_type(report_type)
+
+        if latest_path is None:
+            rows.append({
+                "Report": cfg["Report"],
+                "Type": report_type,
+                "Expected Window": cfg["Expected Window"],
+                "Expected Time": cfg["Expected Time"],
+                "Latest Date": "",
+                "Latest File": "",
+                "News": "",
+                "Alerts": "",
+                "Status": "Missing",
+            })
+            continue
+
+        report_json = load_macro_news_report_json(latest_path)
+        summary = report_json.get("summary", {}) if report_json else {}
+
+        latest_date = parse_report_reference_date(
+            report_json=report_json,
+            fallback_path=latest_path,
+        )
+
+        rows.append({
+            "Report": cfg["Report"],
+            "Type": report_type,
+            "Expected Window": cfg["Expected Window"],
+            "Expected Time": cfg["Expected Time"],
+            "Latest Date": latest_date,
+            "Latest File": latest_path.name,
+            "News": summary.get("news_count", ""),
+            "Alerts": summary.get("alert_candidate_count", ""),
+            "Status": expected_report_status(report_type, latest_date),
+        })
+
+    return pd.DataFrame(rows)
+
+
+def style_macro_news_report_status(df: pd.DataFrame):
+    """
+    Style léger pour le tableau de statut.
+    Compatible avec anciennes et nouvelles versions de pandas.
+    """
+    if df is None or df.empty:
+        return df
+
+    def status_style(value: str) -> str:
+        value = str(value)
+
+        if value == "OK":
+            return "background-color: #dcfce7; color: #166534; font-weight: 700;"
+        if value == "Stale":
+            return "background-color: #fef3c7; color: #92400e; font-weight: 700;"
+        if value == "Missing":
+            return "background-color: #fee2e2; color: #991b1b; font-weight: 700;"
+
+        return ""
+
+    styler = df.style
+
+    if hasattr(styler, "map"):
+        return styler.map(status_style, subset=["Status"])
+
+    return styler.applymap(status_style, subset=["Status"])
+
+
+def render_macro_news_report_status_panel() -> None:
+    """
+    Affiche le statut des rapports macro-news attendus.
+    """
+    st.markdown("#### Macro News Report Status")
+
+    status_df = build_macro_news_report_status_table()
+
+    if status_df.empty:
+        st.info("No macro-news report status available.")
+        return
+
+    st.dataframe(
+        style_macro_news_report_status(status_df),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    stale_count = int((status_df["Status"] == "Stale").sum())
+    missing_count = int((status_df["Status"] == "Missing").sum())
+
+    if missing_count > 0:
+        st.warning(f"{missing_count} expected report(s) are missing.")
+
+    if stale_count > 0:
+        st.warning(f"{stale_count} report(s) are stale relative to today's date.")
+
+    if missing_count == 0 and stale_count == 0:
+        st.success("All expected macro-news reports are up to date.")
+
+
+
 def render_macro_news_report_metadata(report: dict) -> None:
     """
     Affiche une synthèse courte du rapport macro-news sélectionné.
@@ -282,6 +475,10 @@ def render_macro_news_reports_browser() -> None:
     st.caption(
         "Browse generated morning, midday, evening and alert-check macro-news reports."
     )
+
+    render_macro_news_report_status_panel()
+
+    st.divider()
 
     output_dir = _macro_news_reports_dir()
 
@@ -396,4 +593,4 @@ def render() -> None:
         render_daily_reports_browser()
 
     with tab_macro_news:
-        render_macro_news_reports_browser()
+        render_macro_news_reports_browser()         
