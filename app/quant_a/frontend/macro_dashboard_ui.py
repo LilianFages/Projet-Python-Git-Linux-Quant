@@ -1917,6 +1917,7 @@ def prepare_event_impact_board(
         factor = scored_event.get("factor", "Macro")
         direction = scored_event.get("direction", "Mixed")
         event_nature = scored_event.get("event_nature", "background")
+        source_score = scored_event.get("source_score", 0)
         importance = scored_event.get("importance", "Low")
         impact_score = scored_event.get("impact_score", importance_to_score(importance))
         confirmation_label = scored_event.get("market_confirmation", "Weak")
@@ -1943,6 +1944,7 @@ def prepare_event_impact_board(
             "Market Evidence": " | ".join(confirmation_details),
             "Title": event.get("title", ""),
             "Source": event.get("source", ""),
+            "Source Score": source_score
         })
 
     df = pd.DataFrame(rows)

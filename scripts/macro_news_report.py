@@ -652,6 +652,7 @@ def render_report_markdown(report: dict[str, Any]) -> str:
             lines.append(f"- Importance: `{item.get('importance', '')}`")
             lines.append(f"- Factor: `{factor}`")
             lines.append(f"- Source: `{item.get('source', '')}`")
+            lines.append(f"- Source score: `{item.get('source_score', 0)}`")
             lines.append(f"- Score: `{score}`")
             lines.append(f"- Direction: `{item.get('direction', 'N/A')}`")
             lines.append(f"- Event nature: `{item.get('event_nature', 'N/A')}`")

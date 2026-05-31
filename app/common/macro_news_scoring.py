@@ -439,6 +439,53 @@ def infer_event_nature(event: dict[str, Any]) -> str:
 
     return "background"
 
+def source_reliability_score(source: Any) -> int:
+    """
+    Score de fiabilité / autorité de la source.
+
+    2 = source officielle / institutionnelle
+    1 = source reconnue mais non officielle
+    0 = source manuelle ou inconnue
+    """
+    source = str(source or "").lower().strip()
+
+    official_sources = [
+        "federal reserve",
+        "federal reserve press releases",
+        "fed",
+        "ecb",
+        "european central bank",
+        "eia",
+        "eia today in energy",
+        "u.s. energy information administration",
+        "fred",
+        "bureau of labor statistics",
+        "bls",
+        "bea",
+        "treasury",
+        "opec",
+        "iea",
+    ]
+
+    recognized_sources = [
+        "reuters",
+        "bloomberg",
+        "financial times",
+        "wall street journal",
+        "wsj",
+        "marketwatch",
+        "cnbc",
+        "investing.com",
+    ]
+
+    if any(name in source for name in official_sources):
+        return 2
+
+    if any(name in source for name in recognized_sources):
+        return 1
+
+    return 0
+
 # ---------------------------------------------------------------------
 # Final priority / alert logic
 # ---------------------------------------------------------------------
@@ -447,6 +494,7 @@ def final_priority_from_scores(
     market_confirmation_score: int,
     direction: str,
     event_nature: str | None = None,
+    source_score: int = 0,
 ) -> tuple[str, int]:
     """
     Combine importance textuelle + confirmation marché + nature de l'événement.
@@ -456,7 +504,7 @@ def final_priority_from_scores(
     """
     event_nature = str(event_nature or "background")
 
-    final_score = int(impact_score) + int(market_confirmation_score)
+    final_score = int(impact_score) + int(market_confirmation_score) +  int(source_score)
 
     if direction in {"Pressure Up", "Negative"}:
         final_score += 1
@@ -581,6 +629,7 @@ def enrich_event_for_scoring(
     direction = infer_event_direction(enriched, factor)
     impact_score = importance_to_score(enriched.get("importance"))
     event_nature = infer_event_nature(enriched)
+    source_score = source_reliability_score(enriched.get("source"))
 
     confirmation_label, confirmation_score, confirmation_details = infer_market_confirmation(
         factor=factor,
@@ -592,6 +641,7 @@ def enrich_event_for_scoring(
         market_confirmation_score=confirmation_score,
         direction=direction,
         event_nature=event_nature,
+        source_score=source_score,
     )
 
     enriched["factor"] = factor
