@@ -210,57 +210,127 @@
     "max_items": 10
   },
   {
-    "source_id": "bls_cpi_placeholder",
-    "name": "BLS CPI / Inflation Placeholder",
+    "source_id": "bls_cpi",
+    "name": "BLS Consumer Price Index",
     "type": "rss",
     "category": "Inflation",
-    "enabled": false,
-    "url": "",
+    "enabled": true,
+    "url": "https://www.bls.gov/feed/cpi.rss",
     "default_importance": "High",
-    "tags": ["BLS", "Inflation", "CPI", "United States", "Data Release"],
-    "include_keywords": [
-      "Consumer Price Index",
+    "tags": [
+      "BLS",
       "CPI",
-      "inflation",
-      "core CPI",
-      "prices",
+      "Inflation",
+      "United States",
+      "Data Release"
+    ],
+    "include_keywords": [
+      "consumer price index",
+      "cpi",
+      "all urban consumers",
+      "all items",
+      "food and energy",
+      "core",
       "shelter",
-      "energy prices",
-      "food prices"
+      "gasoline",
+      "energy",
+      "prices rose",
+      "prices increased",
+      "prices declined",
+      "over the last 12 months",
+      "seasonally adjusted"
     ],
     "exclude_keywords": [
       "regional",
+      "local area",
       "technical note",
       "methodology",
       "correction",
-      "schedule"
+      "schedule",
+      "archived"
     ],
     "max_items": 10
   },
   {
-    "source_id": "bls_jobs_placeholder",
-    "name": "BLS Employment Situation Placeholder",
+    "source_id": "bls_employment_situation",
+    "name": "BLS Employment Situation",
     "type": "rss",
     "category": "Growth",
-    "enabled": false,
-    "url": "",
+    "enabled": true,
+    "url": "https://www.bls.gov/feed/empsit.rss",
     "default_importance": "High",
-    "tags": ["BLS", "Jobs", "NFP", "Employment", "United States", "Data Release"],
+    "tags": [
+      "BLS",
+      "Employment",
+      "NFP",
+      "Jobs",
+      "United States",
+      "Data Release"
+    ],
     "include_keywords": [
-      "Employment Situation",
+      "employment situation",
+      "nonfarm payroll",
       "nonfarm payrolls",
-      "payrolls",
+      "payroll employment",
       "unemployment rate",
       "average hourly earnings",
-      "labor force",
-      "jobs"
+      "labor force participation",
+      "jobs",
+      "employment increased",
+      "employment decreased",
+      "unemployment unchanged",
+      "unemployment increased",
+      "unemployment decreased"
+    ],
+    "exclude_keywords": [
+      "regional",
+      "state employment",
+      "metropolitan",
+      "veterans",
+      "foreign-born",
+      "technical note",
+      "methodology",
+      "correction",
+      "schedule",
+      "archived"
+    ],
+    "max_items": 10
+  },
+  {
+    "source_id": "bls_ppi",
+    "name": "BLS Producer Price Index",
+    "type": "rss",
+    "category": "Inflation",
+    "enabled": true,
+    "url": "https://www.bls.gov/feed/ppi.rss",
+    "default_importance": "High",
+    "tags": [
+      "BLS",
+      "PPI",
+      "Inflation",
+      "Producer Prices",
+      "United States",
+      "Data Release"
+    ],
+    "include_keywords": [
+      "producer price index",
+      "ppi",
+      "final demand",
+      "goods prices",
+      "services prices",
+      "producer prices",
+      "prices increased",
+      "prices declined",
+      "seasonally adjusted",
+      "over the year"
     ],
     "exclude_keywords": [
       "regional",
       "technical note",
       "methodology",
       "correction",
-      "schedule"
+      "schedule",
+      "archived"
     ],
     "max_items": 10
   },

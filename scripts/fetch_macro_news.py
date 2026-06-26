@@ -60,7 +60,9 @@ REQUIRED_FIELDS = [
 
 VALID_CATEGORIES = {
     "Central Banks",
+    "Inflation",
     "Inflation Data",
+    "Growth",
     "Rates",
     "Commodities",
     "Geopolitical Risk",
@@ -831,6 +833,9 @@ def fetch_rss_macro_news() -> list[dict[str, Any]]:
     - type = rss
     - enabled = true
     - url non vide
+
+    Des headers HTTP explicites sont fournis à feedparser afin d'éviter
+    les blocages de certaines sources officielles, notamment le BLS.
     """
     rss_sources = get_enabled_sources(source_type="rss")
 
@@ -843,21 +848,50 @@ def fetch_rss_macro_news() -> list[dict[str, Any]]:
 
     output: list[dict[str, Any]] = []
 
+    request_headers = {
+        "User-Agent": "Mozilla/5.0 QuantPlatformMacroNews/1.0",
+        "Accept": "application/rss+xml, application/xml, text/xml, */*",
+    }
+
     for source in rss_sources:
+        source_id = str(source.get("source_id", "unknown")).strip()
+        source_name = str(source.get("name", source_id)).strip()
         url = str(source.get("url", "")).strip()
 
         if not url:
+            print(f"[WARN] RSS source skipped because URL is empty: {source_id}")
             continue
 
         try:
-            parsed_feed = feedparser.parse(url)
-            entries = getattr(parsed_feed, "entries", [])
+            parsed_feed = feedparser.parse(
+                url,
+                request_headers=request_headers,
+            )
+
+            entries = getattr(parsed_feed, "entries", []) or []
+            http_status = getattr(parsed_feed, "status", None)
+            bozo = bool(getattr(parsed_feed, "bozo", False))
+            bozo_exception = getattr(parsed_feed, "bozo_exception", None)
+
+            if http_status is not None and int(http_status) >= 400:
+                print(
+                    f"[WARN] RSS source returned HTTP {http_status}: "
+                    f"{source_name}"
+                )
+                continue
+
+            if bozo and not entries:
+                print(
+                    f"[WARN] RSS parsing failed: {source_name} "
+                    f"({type(bozo_exception).__name__ if bozo_exception else 'unknown error'})"
+                )
+                continue
 
             max_items = source.get("max_items", 20)
 
             try:
-                max_items = int(max_items)
-            except Exception:
+                max_items = max(1, int(max_items))
+            except (TypeError, ValueError):
                 max_items = 20
 
             kept_for_source = 0
@@ -879,10 +913,15 @@ def fetch_rss_macro_news() -> list[dict[str, Any]]:
                 output.append(item)
                 kept_for_source += 1
 
+            print(
+                f"[RSS] {source_name}: "
+                f"{len(entries)} fetched, {kept_for_source} kept"
+            )
+
         except Exception as exc:
             print(
-                f"[WARN] RSS source failed: {source.get('source_id', 'unknown')} "
-                f"({type(exc).__name__})"
+                f"[WARN] RSS source failed: {source_id} "
+                f"({type(exc).__name__}: {exc})"
             )
             continue
 
