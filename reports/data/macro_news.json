@@ -1,5 +1,221 @@
 [
   {
+    "date": "2026-06-24",
+    "published_at": "",
+    "category": "Commodities",
+    "importance": "Medium",
+    "title": "U.S. commercial crude oil inventories have decreased in June",
+    "summary": "For the week ending June 19, 2026, U.S. refineries processed 17.1 million barrels per day (b/d) of crude oil, down 81,000 b/d from the previous week, and they operated at 96.1% capacity utilization. Gasoline production averaged 9.5 million b/d, and distillate production increased to 5.2 million b/d.",
+    "source": "EIA Today in Energy",
+    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67805",
+    "tickers": [],
+    "tags": [
+      "EIA",
+      "Energy",
+      "Oil",
+      "Gas",
+      "Commodities",
+      "Inflation Pressure"
+    ],
+    "news_id": "f27055c885812714"
+  },
+  {
+    "date": "2026-06-23",
+    "published_at": "",
+    "category": "Commodities",
+    "importance": "High",
+    "title": "UAE's exit from OPEC+ reduced the group's share of crude oil production and capacity",
+    "summary": "On April 28, 2026, the United Arab Emirates (UAE) announced that it was leaving OPEC, effective on May 1. OPEC was formed in 1960 by Iraq, Iran, Kuwait, Saudi Arabia, and Venezuela, with the stated objective to \"coordinate and unify petroleum policies among Member Countries.\" OPEC is best known for its effect on global crude oil prices.",
+    "source": "EIA Today in Energy",
+    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67804",
+    "tickers": [],
+    "tags": [
+      "EIA",
+      "Energy",
+      "Oil",
+      "Gas",
+      "Commodities",
+      "Inflation Pressure"
+    ],
+    "news_id": "350c298f9f7c1801"
+  },
+  {
+    "date": "2026-06-23",
+    "published_at": "",
+    "category": "Central Banks",
+    "importance": "Medium",
+    "title": "Boris Vujčić: Outlook for the euro area economy and monetary policy",
+    "summary": "Boris Vujčić: Outlook for the euro area economy and monetary policy",
+    "source": "ECB Press Releases",
+    "url": "https://www.ecb.europa.eu//press/key/date/2026/html/ecb.sp260623_1~e421434341.en.pdf",
+    "tickers": [],
+    "tags": [
+      "ECB",
+      "Central Banks",
+      "Rates",
+      "Eurozone",
+      "Monetary Policy"
+    ],
+    "news_id": "6242dfa867c718ee"
+  },
+  {
+    "date": "2026-06-18",
+    "published_at": "",
+    "category": "Commodities",
+    "importance": "Medium",
+    "title": "Permian natural gas production increased faster than crude oil",
+    "summary": "The Permian region's marketed natural gas production grew from 17.2 billion cubic feet per day (Bcf/d) in 2021 to 27.6 Bcf/d in 2025, a 60% increase, according to data from our latest Short Term Energy Outlook. Over the same period, crude oil production grew by 39%, going from 4.7 million barrels per day (b/d) to 6.6 million b/d. The higher growth in natural gas production is the result of increasing gas-oil ratios (GOR).",
+    "source": "EIA Today in Energy",
+    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67785",
+    "tickers": [],
+    "tags": [
+      "EIA",
+      "Energy",
+      "Oil",
+      "Gas",
+      "Commodities",
+      "Inflation Pressure"
+    ],
+    "news_id": "ad6452976c7c29dd"
+  },
+  {
+    "date": "2026-06-17",
+    "published_at": "",
+    "category": "Central Banks",
+    "importance": "High",
+    "title": "Federal Reserve issues FOMC statement",
+    "summary": "Federal Reserve issues FOMC statement",
+    "source": "Federal Reserve Press Releases",
+    "url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20260617a.htm",
+    "tickers": [],
+    "tags": [
+      "Fed",
+      "Central Banks",
+      "Rates",
+      "Monetary Policy",
+      "United States"
+    ],
+    "news_id": "a7b794f4b837428a"
+  },
+  {
+    "date": "2026-06-17",
+    "published_at": "",
+    "category": "Central Banks",
+    "importance": "High",
+    "title": "Federal Reserve Board and Federal Open Market Committee release economic projections from the June 16-17 FOMC meeting",
+    "summary": "Federal Reserve Board and Federal Open Market Committee release economic projections from the June 16-17 FOMC meeting",
+    "source": "Federal Reserve Press Releases",
+    "url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20260617b.htm",
+    "tickers": [],
+    "tags": [
+      "Fed",
+      "Central Banks",
+      "Rates",
+      "Monetary Policy",
+      "United States"
+    ],
+    "news_id": "6f73ab2ce9b6a403"
+  },
+  {
+    "date": "2026-06-11",
+    "published_at": "",
+    "category": "Inflation",
+    "importance": "High",
+    "title": "PPI for final demand advances 1.1% in May; goods rise 2.8%, services increase 0.3%",
+    "summary": "The Producer Price Index for final demand rose 1.1 percent in May. Prices for final demand goods increased 2.8 percent, and the index for final demand services moved up 0.3 percent. Prices for final demand advanced 6.5 percent for the 12 months ended in May.",
+    "source": "BLS Producer Price Index",
+    "url": "https://www.bls.gov/news.release/archives/ppi_06112026.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "PPI",
+      "Inflation",
+      "Producer Prices",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "660170f736b2f698"
+  },
+  {
+    "date": "2026-06-10",
+    "published_at": "",
+    "category": "Inflation",
+    "importance": "High",
+    "title": "CPI for all items rises 0.5% in May; gasoline and shelter up",
+    "summary": "In May, the Consumer Price Index for All Urban Consumers rose 0.5 percent, seasonally adjusted, and rose 4.2 percent over the last 12 months, not seasonally adjusted. The index for all items less food and energy increased 0.2 percent in May (SA); up 2.9 percent over the year (NSA).",
+    "source": "BLS Consumer Price Index",
+    "url": "https://www.bls.gov/news.release/archives/cpi_06102026.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "CPI",
+      "Inflation",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "63c80149e44918d2"
+  },
+  {
+    "date": "2026-06-08",
+    "published_at": "",
+    "category": "Commodities",
+    "importance": "High",
+    "title": "U.S. jet fuel production rises after prices doubled in March",
+    "summary": "Weekly estimates suggest U.S. jet fuel production has increased to record highs in response to elevated jet fuel prices after the Strait of Hormuz closed on February 28. Higher crude oil prices and supply concerns, particularly in Europe and Asia, which previously imported much of their jet fuel supply from the Persian Gulf, have driven up jet fuel prices. Much of the increased U.S. jet fuel production is being exported, as domestic inventories remain above average.",
+    "source": "EIA Today in Energy",
+    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67764",
+    "tickers": [],
+    "tags": [
+      "EIA",
+      "Energy",
+      "Oil",
+      "Gas",
+      "Commodities",
+      "Inflation Pressure"
+    ],
+    "news_id": "04f0b283dd078713"
+  },
+  {
+    "date": "2026-06-05",
+    "published_at": "",
+    "category": "Growth",
+    "importance": "High",
+    "title": "Payroll employment increases by 172,000 in May; unemployment rate unchanged at 4.3%",
+    "summary": "Total nonfarm payroll employment increased by 172,000 in May, and the unemployment rate was unchanged at 4.3 percent. Job gains occurred in leisure and hospitality, local government, and health care. Employment in financial activities declined.",
+    "source": "BLS Employment Situation",
+    "url": "https://www.bls.gov/news.release/archives/empsit_06052026.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "Employment",
+      "NFP",
+      "Jobs",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "65f6dcd416d50b0c"
+  },
+  {
+    "date": "2026-06-03",
+    "published_at": "",
+    "category": "Commodities",
+    "importance": "Medium",
+    "title": "U.S. natural gas storage capacity increased slightly in 2025",
+    "summary": "Underground working natural gas storage capacity in the Lower 48 states increased slightly in 2025, according to our latest data, with growth concentrated in the South Central and Mountain regions. Underground natural gas storage provides a source of energy when demand increases, balancing U.S. energy needs. We calculate natural gas storage capacity in two ways: demonstrated peak capacity and working gas design capacity. Both increased in 2025.",
+    "source": "EIA Today in Energy",
+    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67745",
+    "tickers": [],
+    "tags": [
+      "EIA",
+      "Energy",
+      "Oil",
+      "Gas",
+      "Commodities",
+      "Inflation Pressure"
+    ],
+    "news_id": "24b3a5914e27aec0"
+  },
+  {
     "date": "2026-05-27",
     "published_at": "",
     "category": "Commodities",
@@ -118,242 +334,534 @@
     "news_id": "780e8ef5d9e03fc5"
   },
   {
-    "date": "2026-04-30",
+    "date": "2026-05-13",
     "published_at": "",
-    "category": "Commodities",
-    "importance": "Medium",
-    "title": "DOE has released 17.5 million barrels from the Strategic Petroleum Reserve since March",
-    "summary": "Between the week ending March 20 and the week ending April 24, the U.S. Department of Energy (DOE) released a total of 17.5 million barrels of crude oil from the U.S. Strategic Petroleum Reserve (SPR), according to data in our Weekly Petroleum Status Report. DOE released 7.1 million barrels in the week ending April 24, the most released since the week ending October 7, 2022. SPR stocks are currently 397.9 million barrels.",
-    "source": "EIA Today in Energy",
-    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67625",
-    "tickers": [],
-    "tags": [
-      "EIA",
-      "Energy",
-      "Oil",
-      "Gas",
-      "Commodities",
-      "Inflation Pressure"
-    ],
-    "news_id": "aeae697ea586b23b"
-  },
-  {
-    "date": "2026-04-29",
-    "published_at": "",
-    "category": "Central Banks",
+    "category": "Inflation",
     "importance": "High",
-    "title": "Federal Reserve issues FOMC statement",
-    "summary": "Federal Reserve issues FOMC statement",
-    "source": "Federal Reserve Press Releases",
-    "url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20260429a.htm",
+    "title": "PPI for final demand advances 1.4% in April; services rise 1.2%, goods increase 2.0%",
+    "summary": "The Producer Price Index for final demand increased 1.4 percent in April. Prices for final demand services advanced 1.2 percent, and the index for final demand goods moved up 2.0 percent. Prices for final demand rose 6.0 percent for the 12 months ended in April.",
+    "source": "BLS Producer Price Index",
+    "url": "https://www.bls.gov/news.release/archives/ppi_05132026.htm",
     "tickers": [],
     "tags": [
-      "Fed",
-      "Central Banks",
-      "Rates",
-      "Monetary Policy",
-      "United States"
+      "BLS",
+      "PPI",
+      "Inflation",
+      "Producer Prices",
+      "United States",
+      "Data Release"
     ],
-    "news_id": "6139100ec40faaed"
+    "news_id": "c9eafc834d7547a3"
   },
   {
-    "date": "2026-04-29",
+    "date": "2026-05-12",
     "published_at": "",
-    "category": "Commodities",
-    "importance": "Medium",
-    "title": "Alaska proved reserves increased in 2024, while nationwide proved reserves fell",
-    "summary": "Oil and gas producers operating in Alaska reported increases in proved reserves in 2024 at a time when low prices triggered a decrease in nationwide proved reserves, according to our recently released U.S. Crude Oil and Natural Gas Proved Reserves, Year-End 2024 report. Alaska's crude oil and lease condensate proved reserves increased 5%, and natural gas proved reserves increased nearly 7% in 2024.",
-    "source": "EIA Today in Energy",
-    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67624",
-    "tickers": [],
-    "tags": [
-      "EIA",
-      "Energy",
-      "Oil",
-      "Gas",
-      "Commodities",
-      "Inflation Pressure"
-    ],
-    "news_id": "0aa983145002a3dc"
-  },
-  {
-    "date": "2026-04-28",
-    "published_at": "",
-    "category": "Commodities",
+    "category": "Inflation",
     "importance": "High",
-    "title": "International LNG prices rise amid Strait of Hormuz closure",
-    "summary": "Prices for natural gas in Europe and Asia have diverged from those in the United States since the February 28 closure of the Strait of Hormuz.",
-    "source": "EIA Today in Energy",
-    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67604",
+    "title": "CPI for all items rises 0.6% in April; shelter and gasoline up",
+    "summary": "In April, the Consumer Price Index for All Urban Consumers rose 0.6 percent, seasonally adjusted, and rose 3.8 percent over the last 12 months, not seasonally adjusted. The index for all items less food and energy increased 0.4 percent in April (SA); up 2.8 percent over the year (NSA).",
+    "source": "BLS Consumer Price Index",
+    "url": "https://www.bls.gov/news.release/archives/cpi_05122026.htm",
     "tickers": [],
     "tags": [
-      "EIA",
-      "Energy",
-      "Oil",
-      "Gas",
-      "Commodities",
-      "Inflation Pressure"
+      "BLS",
+      "CPI",
+      "Inflation",
+      "United States",
+      "Data Release"
     ],
-    "news_id": "1dccd61cd22c3f1a"
+    "news_id": "d00721104e3e777f"
   },
   {
-    "date": "2026-04-24",
+    "date": "2026-05-08",
     "published_at": "",
-    "category": "Commodities",
+    "category": "Growth",
     "importance": "High",
-    "title": "Brent crude oil spot prices surge past futures price in April",
-    "summary": "The Dated Brent spot price increased to a premium of more than $25 per barrel (b) compared with the front-month Brent futures contract in early April. Brent crude oil price benchmarks are widely used by commodities traders, financial market participants, economists, and others to assess changes in global petroleum prices more broadly.",
-    "source": "EIA Today in Energy",
-    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67544",
+    "title": "Payroll employment edges up by 115,000 in April; unemployment rate unchanged at 4.3%",
+    "summary": "Total nonfarm payroll employment edged up by 115,000 in April, and the unemployment rate was unchanged at 4.3 percent. Job gains occurred in health care, transportation and warehousing, and retail trade. Federal government employment continued to decline.",
+    "source": "BLS Employment Situation",
+    "url": "https://www.bls.gov/news.release/archives/empsit_05082026.htm",
     "tickers": [],
     "tags": [
-      "EIA",
-      "Energy",
-      "Oil",
-      "Gas",
-      "Commodities",
-      "Inflation Pressure"
+      "BLS",
+      "Employment",
+      "NFP",
+      "Jobs",
+      "United States",
+      "Data Release"
     ],
-    "news_id": "a3b32b3e235aaf12"
+    "news_id": "0eb1a4c4ca4e82ab"
   },
   {
-    "date": "2026-04-23",
+    "date": "2026-04-14",
     "published_at": "",
-    "category": "Commodities",
+    "category": "Inflation",
     "importance": "High",
-    "title": "The 10th U.S. liquefied natural gas export terminal, Golden Pass, ships first cargo",
-    "summary": "On April 22, 2026, Golden Pass LNG-the 10th liquefied natural gas (LNG) terminal in the United States-shipped its first cargo from Train 1, according to the project developer. The shipment left port 23 days after achieving first LNG production in March 2026. The terminal began shipping as geopolitical developments in the Strait of Hormuz have affected over 10 billion cubic feet per day (Bcf/d), or approximately 20%, of global supply. Golden Pass LNG is the only new U.S. LNG export terminal currently expected to begin LNG shipments in 2026.",
-    "source": "EIA Today in Energy",
-    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67564",
+    "title": "PPI for final demand advances 0.5% in March; goods rise 1.6%, services unchanged",
+    "summary": "The Producer Price Index for final demand increased 0.5 percent in March. Prices for final demand goods advanced 1.6 percent, and the index for final demand services was unchanged. Prices for final demand rose 4.0 percent for the 12 months ended in March.",
+    "source": "BLS Producer Price Index",
+    "url": "https://www.bls.gov/news.release/archives/ppi_04142026.htm",
     "tickers": [],
     "tags": [
-      "EIA",
-      "Energy",
-      "Oil",
-      "Gas",
-      "Commodities",
-      "Inflation Pressure"
+      "BLS",
+      "PPI",
+      "Inflation",
+      "Producer Prices",
+      "United States",
+      "Data Release"
     ],
-    "news_id": "0aaba089721bd108"
-  },
-  {
-    "date": "2026-04-21",
-    "published_at": "",
-    "category": "Commodities",
-    "importance": "Medium",
-    "title": "Natural gas inventories at the end of winter heating season were near five-year average",
-    "summary": "We estimate the Lower 48 U.S. states began this natural gas injection season (April–October) with 1,890 billion cubic feet (Bcf) of working natural gas in storage, based on interpolated data from our Weekly Natural Gas Storage Report. This level was 3% above the previous five-year (2021–25) average and 3% above last year's end-of-season storage volume.",
-    "source": "EIA Today in Energy",
-    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67524",
-    "tickers": [],
-    "tags": [
-      "EIA",
-      "Energy",
-      "Oil",
-      "Gas",
-      "Commodities",
-      "Inflation Pressure"
-    ],
-    "news_id": "9d61fab201a10124"
-  },
-  {
-    "date": "2026-04-20",
-    "published_at": "",
-    "category": "Commodities",
-    "importance": "High",
-    "title": "China, the United States, and Japan hold most strategic oil inventories in 2025",
-    "summary": "In the 1970s, the United States and other OECD countries established strategic oil stocks aimed at mitigating the impact of supply disruptions. In March 2026, the United States, along with other members of the International Energy Agency, agreed to a coordinated emergency release of strategic oil stocks following the effective closure of the Strait of Hormuz.",
-    "source": "EIA Today in Energy",
-    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67504",
-    "tickers": [],
-    "tags": [
-      "EIA",
-      "Energy",
-      "Oil",
-      "Gas",
-      "Commodities",
-      "Inflation Pressure"
-    ],
-    "news_id": "d7a9d42bcb423aef"
-  },
-  {
-    "date": "2026-04-16",
-    "published_at": "",
-    "category": "Commodities",
-    "importance": "Medium",
-    "title": "U.S. natural gas exports to grow nearly 30% by 2027 as LNG facilities ramp up",
-    "summary": "In our latest Short-Term Energy Outlook (STEO), we forecast that U.S. liquefied natural gas (LNG) exports will continue to increase as five LNG export projects start operations and ramp up production by the end of 2027. We also forecast increased natural gas pipeline exports, mainly to Mexico. In our forecast, net exports of U.S. natural gas (exports minus imports) grow 18% to 18.7 billion cubic feet per day (Bcf/d) in 2026. In 2027, net exports increase another 10% to 20.5 Bcf/d.",
-    "source": "EIA Today in Energy",
-    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67484",
-    "tickers": [],
-    "tags": [
-      "EIA",
-      "Energy",
-      "Oil",
-      "Gas",
-      "Commodities",
-      "Inflation Pressure"
-    ],
-    "news_id": "ab649644d380a6d5"
-  },
-  {
-    "date": "2026-04-15",
-    "published_at": "",
-    "category": "Commodities",
-    "importance": "High",
-    "title": "What's in your gasoline? Understanding U.S. motor gasoline formulations",
-    "summary": "Motor gasoline in the United States is a blend of hydrocarbons and chemicals, with specific formulas varying by region and season. To meet federal air quality standards, the U.S. Environmental Protection Agency (EPA) and state regulators require different formulations, depending on air quality and location, which affect performance, cost, and emissions. In addition, warmer summer months require a different gasoline formulation than cooler winter months. Key differences between formulations include octane rating, volatility-commonly measured as Reid vapor pressure (RVP)-and emissions. This year, the EPA will relax federal enforcement of summer RVP standards to help reduce gasoline prices.",
-    "source": "EIA Today in Energy",
-    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67464",
-    "tickers": [],
-    "tags": [
-      "EIA",
-      "Energy",
-      "Oil",
-      "Gas",
-      "Commodities",
-      "Inflation Pressure"
-    ],
-    "news_id": "11eb35c692c5627e"
+    "news_id": "9e95167cac3122a5"
   },
   {
     "date": "2026-04-10",
     "published_at": "",
-    "category": "Commodities",
-    "importance": "Medium",
-    "title": "Increasing fuel efficiency leads to decreasing gasoline consumption",
-    "summary": "Annual motor gasoline consumption in the United States decreased in 2025 even as vehicle miles traveled (VMT) increased because of increasing fuel efficiency, a trend we forecast will continue in 2026 and 2027. U.S. motor gasoline consumption averaged 8.9 million barrels per day (b/d) in 2025, 1% less than 2024 and 4% less than pre-pandemic demand in 2019. In our April Short-Term Energy Outlook (STEO), we estimate that motor gasoline consumption will continue to decline as forecast fuel efficiency increases and VMT growth slows.",
-    "source": "EIA Today in Energy",
-    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67426",
+    "category": "Inflation",
+    "importance": "High",
+    "title": "CPI for all items rises 0.9% in March; gasoline up",
+    "summary": "In March, the Consumer Price Index for All Urban Consumers rose 0.9 percent, seasonally adjusted, and rose 3.3 percent over the last 12 months, not seasonally adjusted. The index for all items less food and energy increased 0.2 percent in March (SA); up 2.6 percent over the year (NSA).",
+    "source": "BLS Consumer Price Index",
+    "url": "https://www.bls.gov/news.release/archives/cpi_04102026.htm",
     "tickers": [],
     "tags": [
-      "EIA",
-      "Energy",
-      "Oil",
-      "Gas",
-      "Commodities",
-      "Inflation Pressure"
+      "BLS",
+      "CPI",
+      "Inflation",
+      "United States",
+      "Data Release"
     ],
-    "news_id": "b8bc712672ab9b0a"
+    "news_id": "61b777e8873e3f7c"
   },
   {
-    "date": "2026-04-08",
+    "date": "2026-04-03",
     "published_at": "",
-    "category": "Commodities",
-    "importance": "Medium",
-    "title": "Domestic and international demand drive natural gas production growth",
-    "summary": "In our Annual Energy Outlook 2026 (AEO2026), we project U.S. dry natural gas production, which accounted for 38% of total U.S. energy production in 2025, will increase significantly over the next several decades, meeting growing domestic and international natural gas demand.",
-    "source": "EIA Today in Energy",
-    "url": "https://www.eia.gov/todayinenergy/detail.php?id=67425",
+    "category": "Growth",
+    "importance": "High",
+    "title": "Payroll employment increases by 178,000 in March; unemployment rate changes little at 4.3%",
+    "summary": "Total nonfarm payroll employment increased by 178,000 in March, and the unemployment rate changed little at 4.3 percent. Job gains occurred in health care, in construction, and in transportation and warehousing. Federal government employment continued to decline.",
+    "source": "BLS Employment Situation",
+    "url": "https://www.bls.gov/news.release/archives/empsit_04032026.htm",
     "tickers": [],
     "tags": [
-      "EIA",
-      "Energy",
-      "Oil",
-      "Gas",
-      "Commodities",
-      "Inflation Pressure"
+      "BLS",
+      "Employment",
+      "NFP",
+      "Jobs",
+      "United States",
+      "Data Release"
     ],
-    "news_id": "aaeb4248a335b002"
+    "news_id": "bef7d7e6b22a6f7a"
+  },
+  {
+    "date": "2026-03-18",
+    "published_at": "",
+    "category": "Inflation",
+    "importance": "High",
+    "title": "PPI for final demand advances 0.7% in February; services rise 0.5%, goods increase 1.1%",
+    "summary": "The Producer Price Index for final demand increased 0.7 percent in February. Prices for final demand services moved up 0.5 percent, and the index for final demand goods advanced 1.1 percent. The index for final demand rose 3.4 percent for the 12 months ended in February.",
+    "source": "BLS Producer Price Index",
+    "url": "https://www.bls.gov/news.release/archives/ppi_03182026.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "PPI",
+      "Inflation",
+      "Producer Prices",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "8b16309b4ba76597"
+  },
+  {
+    "date": "2026-03-11",
+    "published_at": "",
+    "category": "Inflation",
+    "importance": "High",
+    "title": "CPI for all items rises 0.3% in February; shelter up",
+    "summary": "In February, the Consumer Price Index for All Urban Consumers rose 0.3 percent, seasonally adjusted, and rose 2.4 percent over the last 12 months, not seasonally adjusted. The index for all items less food and energy increased 0.2 percent in February (SA); up 2.5 percent over the year (NSA).",
+    "source": "BLS Consumer Price Index",
+    "url": "https://www.bls.gov/news.release/archives/cpi_03112026.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "CPI",
+      "Inflation",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "eace4a3b231348ec"
+  },
+  {
+    "date": "2026-03-06",
+    "published_at": "",
+    "category": "Growth",
+    "importance": "High",
+    "title": "Payroll employment edges down 92,000 in February; unemployment rate changes little at 4.4%",
+    "summary": "Total nonfarm payroll employment edged down by 92,000 in February, and the unemployment rate changed little at 4.4 percent. Employment in health care decreased, reflecting strike activity. Employment in information and federal government continued to trend down.",
+    "source": "BLS Employment Situation",
+    "url": "https://www.bls.gov/news.release/archives/empsit_03062026.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "Employment",
+      "NFP",
+      "Jobs",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "2d6ccc26309aebc1"
+  },
+  {
+    "date": "2026-02-27",
+    "published_at": "",
+    "category": "Inflation",
+    "importance": "High",
+    "title": "PPI for final demand advances 0.5% in January; services rise 0.8%, goods decrease 0.3%",
+    "summary": "The Producer Price Index for final demand increased 0.5 percent in January. Prices for final demand services advanced 0.8 percent, and the index for final demand goods declined 0.3 percent. On an unadjusted basis, the index for final demand rose 2.9 percent for the 12 months ended in January.",
+    "source": "BLS Producer Price Index",
+    "url": "https://www.bls.gov/news.release/archives/ppi_02272026.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "PPI",
+      "Inflation",
+      "Producer Prices",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "85dcc4c4d163208f"
+  },
+  {
+    "date": "2026-02-13",
+    "published_at": "",
+    "category": "Inflation",
+    "importance": "High",
+    "title": "CPI for all items rises 0.2% in January; shelter up",
+    "summary": "In January, the Consumer Price Index for All Urban Consumers rose 0.2 percent, seasonally adjusted, and rose 2.4 percent over the last 12 months, not seasonally adjusted. The index for all items less food and energy increased 0.3 percent in January (SA); up 2.5 percent over the year (NSA).",
+    "source": "BLS Consumer Price Index",
+    "url": "https://www.bls.gov/news.release/archives/cpi_02132026.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "CPI",
+      "Inflation",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "10580292488f6a27"
+  },
+  {
+    "date": "2026-02-11",
+    "published_at": "",
+    "category": "Growth",
+    "importance": "High",
+    "title": "Payroll employment rises by 130,000 in January; unemployment rate changes little at 4.3%",
+    "summary": "Total nonfarm payroll employment rose by 130,000 in January, and the unemployment rate changed little at 4.3 percent. Job gains occurred in health care, social assistance, and construction, while federal government and financial activities lost jobs.",
+    "source": "BLS Employment Situation",
+    "url": "https://www.bls.gov/news.release/archives/empsit_02112026.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "Employment",
+      "NFP",
+      "Jobs",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "5e4c27f53f40dc49"
+  },
+  {
+    "date": "2026-01-30",
+    "published_at": "",
+    "category": "Inflation",
+    "importance": "High",
+    "title": "PPI for final demand advances 0.5% in December; services rise 0.7%, goods unchanged",
+    "summary": "The Producer Price Index for final demand increased 0.5 percent in December. Prices for final demand services advanced 0.7 percent, and the index for final demand goods was unchanged. On an unadjusted basis, prices for final demand rose 3.0 percent in 2025.",
+    "source": "BLS Producer Price Index",
+    "url": "https://www.bls.gov/news.release/archives/ppi_01302026.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "PPI",
+      "Inflation",
+      "Producer Prices",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "c5ecff26b0baf45f"
+  },
+  {
+    "date": "2026-01-14",
+    "published_at": "",
+    "category": "Inflation",
+    "importance": "High",
+    "title": "PPI for final demand advances 0.2% in November; goods rise 0.9%, services unchanged",
+    "summary": "The Producer Price Index for final demand increased 0.2 percent in November. Prices for final demand goods advanced 0.9 percent, and the index for final demand services was unchanged. On an unadjusted basis, prices for final demand rose 3.0 percent for the 12 months ended in November.",
+    "source": "BLS Producer Price Index",
+    "url": "https://www.bls.gov/news.release/archives/ppi_01142026.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "PPI",
+      "Inflation",
+      "Producer Prices",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "485398287bdca733"
+  },
+  {
+    "date": "2026-01-13",
+    "published_at": "",
+    "category": "Inflation",
+    "importance": "High",
+    "title": "CPI for all items rises 0.3% in December; shelter and food up",
+    "summary": "In December, the Consumer Price Index for All Urban Consumers rose 0.3 percent, seasonally adjusted, and rose 2.7 percent over the last 12 months, not seasonally adjusted. The index for all items less food and energy increased 0.2 percent in December (SA); up 2.6 percent over the year (NSA).",
+    "source": "BLS Consumer Price Index",
+    "url": "https://www.bls.gov/news.release/archives/cpi_01132026.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "CPI",
+      "Inflation",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "1d70a000a6c9565e"
+  },
+  {
+    "date": "2026-01-09",
+    "published_at": "",
+    "category": "Growth",
+    "importance": "High",
+    "title": "Both payroll employment (+50,000) and unemployment rate (4.4%) change little in December",
+    "summary": "Both total nonfarm payroll employment (+50,000) and the unemployment rate (4.4 percent) changed little in December. Employment continued to trend up in food services and drinking places, health care, and social assistance. Retail trade lost jobs.",
+    "source": "BLS Employment Situation",
+    "url": "https://www.bls.gov/news.release/archives/empsit_01092026.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "Employment",
+      "NFP",
+      "Jobs",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "550bc22fc62f8dcd"
+  },
+  {
+    "date": "2025-12-18",
+    "published_at": "",
+    "category": "Inflation",
+    "importance": "High",
+    "title": "CPI for all items rises 2.7% over 12 months ending in November; shelter up",
+    "summary": "In November, the Consumer Price Index for All Urban Consumers rose 2.7 percent over the last 12 months, not seasonally adjusted. The index for all items less food and energy increased 2.6 percent over the year (NSA).",
+    "source": "BLS Consumer Price Index",
+    "url": "https://www.bls.gov/news.release/archives/cpi_12182025.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "CPI",
+      "Inflation",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "4f50769025d74cb1"
+  },
+  {
+    "date": "2025-12-16",
+    "published_at": "",
+    "category": "Growth",
+    "importance": "High",
+    "title": "Both payroll employment (+64,000) and unemployment rate (4.6%) change little in November",
+    "summary": "Total nonfarm payroll employment changed little in November (+64,000) and has changed little since April. The November unemployment rate was 4.6 percent, little changed from September. Employment rose in health care and construction in November, while federal government continued to lose jobs.",
+    "source": "BLS Employment Situation",
+    "url": "https://www.bls.gov/news.release/archives/empsit_12162025.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "Employment",
+      "NFP",
+      "Jobs",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "8511067402f2628b"
+  },
+  {
+    "date": "2025-11-25",
+    "published_at": "",
+    "category": "Inflation",
+    "importance": "High",
+    "title": "PPI for final demand advances 0.3% in September; goods rise 0.9%, services unchanged",
+    "summary": "The Producer Price Index for final demand increased 0.3 percent in September. Prices for final demand goods advanced 0.9 percent, and the index for final demand services was unchanged. On an unadjusted basis, prices for final demand moved up 2.7 percent for the 12 months ended in September.",
+    "source": "BLS Producer Price Index",
+    "url": "https://www.bls.gov/news.release/archives/ppi_11252025.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "PPI",
+      "Inflation",
+      "Producer Prices",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "67f2f05dab849060"
+  },
+  {
+    "date": "2025-11-20",
+    "published_at": "",
+    "category": "Growth",
+    "importance": "High",
+    "title": "Payroll employment edges up 119,000 in September; unemployment rate changes little at 4.4%",
+    "summary": "Total nonfarm payroll employment edged up in September (+119,000), and the unemployment rate changed little at 4.4 percent. Employment trended up in health care, food services and drinking places, and social assistance. Transportation and warehousing and federal government lost jobs.",
+    "source": "BLS Employment Situation",
+    "url": "https://www.bls.gov/news.release/archives/empsit_11202025.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "Employment",
+      "NFP",
+      "Jobs",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "d7e7a92e7ee7e699"
+  },
+  {
+    "date": "2025-10-24",
+    "published_at": "",
+    "category": "Inflation",
+    "importance": "High",
+    "title": "CPI for all items rises 0.3% in September; gasoline up",
+    "summary": "In September, the Consumer Price Index for All Urban Consumers rose 0.3 percent, seasonally adjusted, and rose 3.0 percent over the last 12 months, not seasonally adjusted. The index for all items less food and energy increased 0.2 percent in September (SA); up 3.0 percent over the year (NSA).",
+    "source": "BLS Consumer Price Index",
+    "url": "https://www.bls.gov/news.release/archives/cpi_10242025.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "CPI",
+      "Inflation",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "9a8746d292a833a3"
+  },
+  {
+    "date": "2025-09-11",
+    "published_at": "",
+    "category": "Inflation",
+    "importance": "High",
+    "title": "CPI for all items rises 0.4% in August; shelter and food up",
+    "summary": "In August, the Consumer Price Index for All Urban Consumers rose 0.4 percent, seasonally adjusted, and rose 2.9 percent over the last 12 months, not seasonally adjusted. The index for all items less food and energy increased 0.3 percent in August (SA); up 3.1 percent over the year (NSA).",
+    "source": "BLS Consumer Price Index",
+    "url": "https://www.bls.gov/news.release/archives/cpi_09112025.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "CPI",
+      "Inflation",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "7069e8d1da672678"
+  },
+  {
+    "date": "2025-09-10",
+    "published_at": "",
+    "category": "Inflation",
+    "importance": "High",
+    "title": "PPI for final demand declines 0.1% in August; services fall 0.2%, goods increase 0.1%",
+    "summary": "The Producer Price Index for final demand edged down 0.1 percent in August. Prices for final demand services declined 0.2 percent, and the index for final demand goods rose 0.1 percent. On an unadjusted basis, the index for final demand advanced 2.6 percent for the 12 months ended in August.",
+    "source": "BLS Producer Price Index",
+    "url": "https://www.bls.gov/news.release/archives/ppi_09102025.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "PPI",
+      "Inflation",
+      "Producer Prices",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "18ee7e298a80de37"
+  },
+  {
+    "date": "2025-09-05",
+    "published_at": "",
+    "category": "Growth",
+    "importance": "High",
+    "title": "Both payroll employment (+22,000) and unemployment rate (4.3%) change little in August",
+    "summary": "Both total nonfarm payroll employment (+22,000) and the unemployment rate (4.3 percent) changed little in August. A job gain in health care was partially offset by losses in federal government and in mining, quarrying, and oil and gas extraction.",
+    "source": "BLS Employment Situation",
+    "url": "https://www.bls.gov/news.release/archives/empsit_09052025.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "Employment",
+      "NFP",
+      "Jobs",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "d8aa61b2879c72c7"
+  },
+  {
+    "date": "2025-08-14",
+    "published_at": "",
+    "category": "Inflation",
+    "importance": "High",
+    "title": "PPI for final demand advances 0.9% in July; services rise 1.1%, goods increase 0.7%",
+    "summary": "The Producer Price Index for final demand rose 0.9 percent in July. Prices for final demand services advanced 1.1 percent, and the index for final demand goods increased 0.7 percent. On an unadjusted basis, the index for final demand moved up 3.3 percent for the 12 months ended in July.",
+    "source": "BLS Producer Price Index",
+    "url": "https://www.bls.gov/news.release/archives/ppi_08142025.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "PPI",
+      "Inflation",
+      "Producer Prices",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "7e65563f749d0fc7"
+  },
+  {
+    "date": "2025-08-12",
+    "published_at": "",
+    "category": "Inflation",
+    "importance": "High",
+    "title": "CPI for all items rises 0.2% in July; shelter up",
+    "summary": "In July, the Consumer Price Index for All Urban Consumers rose 0.2 percent, seasonally adjusted, and rose 2.7 percent over the last 12 months, not seasonally adjusted. The index for all items less food and energy increased 0.3 percent in July (SA); up 3.1 percent over the year (NSA).",
+    "source": "BLS Consumer Price Index",
+    "url": "https://www.bls.gov/news.release/archives/cpi_08122025.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "CPI",
+      "Inflation",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "0ba61f5829567905"
+  },
+  {
+    "date": "2025-08-01",
+    "published_at": "",
+    "category": "Growth",
+    "importance": "High",
+    "title": "Both payroll employment (+73,000) and unemployment rate (4.2%) change little in July",
+    "summary": "Total nonfarm payroll employment changed little in July (+73,000) and has shown little change since April. The unemployment rate, at 4.2 percent, changed little in July. Employment continued to trend up in health care and in social assistance. Federal government continued to lose jobs.",
+    "source": "BLS Employment Situation",
+    "url": "https://www.bls.gov/news.release/archives/empsit_08012025.htm",
+    "tickers": [],
+    "tags": [
+      "BLS",
+      "Employment",
+      "NFP",
+      "Jobs",
+      "United States",
+      "Data Release"
+    ],
+    "news_id": "0c93e92c4850aca0"
   }
 ]
